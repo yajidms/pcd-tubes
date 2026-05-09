@@ -61,21 +61,16 @@ Proyek ini dikembangkan dengan arsitektur modular yang memisahkan tanggung jawab
 *   **Graceful Fallback:** Jika model gagal load, masuk ke mode "no-AI" aktif.
 *   **Data Privasi & Cloud Storage:** (Diubah sesuai preferensi tim ke) **MongoDB Atlas**. Setiap sesi deteksi akan dilog ringkasannya ke database cloud. Privasi dijamin: tidak ada gambar wajah yang disimpan, hanya metadata label & timestamp.
 
-### 4. Flutter UI & Feedback Overlay Design
-*   **Face Frame:** Bounding box dinamis berubah warna per ekspresi (hijau = happy, merah = angry, biru = neutral).
-*   **Chip Label:** Muncul di atas kotak wajah, contoh: "Pria · 24th · 😊 Happy 92%".
-*   **Animasi:** *Fade in/out smooth 200ms* agar tidak mengganggu UX.
-*   **Dashboard & Analytics:** 
-    *   *Emotion Timeline:* Grafik garis ekspresi dominan per menit (Recharts-style).
-    *   *Age Distribution:* Donut chart estimasi rentang usia.
-    *   *Heatmap Mood:* Calendar view — dominasi emosi per hari.
-*   **Fitur Tambahan (Anti-Monoton):** 
-    *   *Mood Journal:* User tulis catatan setelah sesi, dikaitkan dengan ekspresi terdeteksi.
-    *   *Challenge Mode:* Kamera meminta user meniru ekspresi tertentu (Gamifikasi).
-    *   *Multi-lang:* Label ekspresi tampil dalam Bahasa Indonesia / English.
-    *   *Widget Home:* Mini mood status hari ini di layar utama.
+### 4. UI & Fitur
+*   **Overlay Design:** Analitik di atas kotak wajah yang mulus dan interaktif.
+*   **Dashboard Analitik:** Menyediakan kurva statistik aktivitas emosi dan data estimasi usia pengunjung.
+*   **Mood Journal & Challenge:** Elemen interaktif agar aplikasi lebih *engaging* dan tidak monoton.
 
-### Kekuatan Proyek & Prinsip SOLID
-*   *On-device inference* — privasi terjaga tidak butuh internet untuk kamera.
-*   Multi-task dalam 1 kamera stream (wajah + usia + ekspresi simultan).
-*   Menggunakan Prinsip SOLID (Single Responsibility, Open/Closed, Dependency Injection via Riverpod).
+## Environment & Konfigurasi Security
+Proyek ini menggunakan file environment variables untuk mengatur string koneksi ke layanan eksternal demi menghindari kebocoran kredensial (terlebih ke MongoDB Atlas).
+
+**Cara Setup:**
+1. Gandakan file `.env.example` lalu ubah namanya menjadi `.env`.
+2. Buka file `.env` dan masukkan URI dari MongoDB Atlas milik tim (`MONGODB_URI`).
+3. Konfigurasi nama database serta nama koleksi (collection) dapat dimodifikasi secara dinamis dari file `.env` tersebut.
+4. *Penting:* Jangan pernah melakukan commit file `.env` yang merisi data koneksi *production* ke repository GitLab/GitHub tim.
