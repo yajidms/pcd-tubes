@@ -6,7 +6,7 @@
 ## Anggota & Penugasan Tim
 Proyek ini dikembangkan dengan arsitektur modular yang memisahkan tanggung jawab (Single Responsibility Principle). Pembagian tugas telah disesuaikan dengan pola pengembangan spesifik:
 
-**1. Rizky Satria Gunawan (241511089)**
+**1. Rizky Satria Gunawan (241511089) - branch lens**
 *   **Fokus:** Frontend (UI & Presentasi Kamera)
 *   **Tugas:**
     *   Mengimplementasikan UI *Camera stream* menggunakan *Flutter Camera Plugin*.
@@ -14,7 +14,7 @@ Proyek ini dikembangkan dengan arsitektur modular yang memisahkan tanggung jawab
     *   Membangun komponen tampilan untuk *Challenge Mode*.
 *   **Direktori Utama:** `lib/features/detect/`, `lib/features/challenge/`
 
-**2. Hanifidin Ibrahim (241511076)**
+**2. Hanifidin Ibrahim (241511076) - branch insight**
 *   **Fokus:** Frontend (Dashboard, Journal & UI/UX Styling)
 *   **Tugas:**
     *   Membangun layout antarmuka visual (UI) untuk halaman *Dashboard & Analytics*.
@@ -23,7 +23,7 @@ Proyek ini dikembangkan dengan arsitektur modular yang memisahkan tanggung jawab
     *   Penerapan desain sistem sentral (tema warna, animasi UX) agar konsisten seluruh aplikasi.
 *   **Direktori Utama:** `lib/features/dashboard/`, `lib/features/journal/`, `lib/shared/`
 
-**3. Yazid Alrasyid (241511093)**
+**3. Yazid Alrasyid (241511093) - branch brain**
 *   **Fokus:** Fullstack & Backend Core (Integrasi Menyeluruh)
 *   **Tugas:**
     *   **Backend & ML Core:** Mengurus seluruh proses berat ML; memuat model TensorFlow Lite (MobileNetV3, CNN ekspresi), proses preprocessing MediaPipe Face Mesh, dan menjalankan algoritma analitik *on-device*.
