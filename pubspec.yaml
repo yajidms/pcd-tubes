@@ -31,11 +31,17 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_dotenv: ^6.0.1
   mongo_dart: ^0.10.8
+
+  # === TIM CAP: Lens Branch Dependencies ===
+  # Live camera feed
+  camera: ^0.11.0+2
+  # On-device face detection (BlazeFace / MediaPipe via LiteRT)
+  face_detection_tflite: ^6.2.5
+  # State management — Single Source of Truth
+  flutter_riverpod: ^2.6.1
 
 dev_dependencies:
   flutter_test:
@@ -59,9 +65,12 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Assets — TFLite models (placeholder, isi dengan model custom nanti)
+  assets:
+    - assets/models/
+
   # To add assets to your application, add an assets section, like this:
   # assets:
-  #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
