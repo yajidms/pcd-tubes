@@ -157,7 +157,8 @@ class FaceDetectorService {
       final mouthH = (lowerLip.y - upperLip.y).abs();
       final mar = mouthH / mouthW;
 
-      // Smile score: lip corners naik → y corner < y lip center
+      // Smile score: lip corners naik → y corner < y lip center (positif = senyum)
+      // Frown score: lip corners turun → y corner > y lip center (negatif = sedih)
       final lipCenterY = (upperLip.y + lowerLip.y) / 2;
       final cornerAvgY = (leftCorner.y + rightCorner.y) / 2;
       final smileRatio = (lipCenterY - cornerAvgY) / mouthW;
@@ -171,7 +172,7 @@ class FaceDetectorService {
       final browEyeGap = (leftEyeInner.y - leftBrow.y).abs();
       final browRatio = browEyeGap / mouthW;
 
-      // ── Classifier ─────────────────────────────────────────────────────────
+      // ── Classifier ───────────────────────────────────────────────────────────────────
       // Surprised: mulut terbuka (MAR > 0.28) DAN mata melebar (EAR > 0.22)
       if (mar > 0.28 && avgEAR > 0.22) {
         final conf = (math.min(mar / 0.4, 1.0) * 0.15 + 0.75).clamp(0.70, 0.95);
@@ -190,6 +191,13 @@ class FaceDetectorService {
         return (expression: FaceExpression.angry, confidence: conf);
       }
 
+      // Sad: sudut mulut tertarik ke bawah (frown) → smileRatio negatif
+      // Berbeda dari angry: alis tidak ditekan tapi mulut turun
+      if (smileRatio < -0.03 && browRatio >= 0.24) {
+        final conf = (math.min(smileRatio.abs() / 0.10, 1.0) * 0.18 + 0.68).clamp(0.65, 0.90);
+        return (expression: FaceExpression.sad, confidence: conf);
+      }
+
       // Default: Neutral
       return (expression: FaceExpression.neutral, confidence: 0.72);
     } catch (_) {
@@ -197,22 +205,30 @@ class FaceDetectorService {
     }
   }
 
-  // ── Age Estimation (Mock / Heuristics) ────────────────────────────────────
+  // ── Age Estimation (Mock / Heuristics) ─────────────────────────────────
   //
   // PENTING: Ini adalah MOCK untuk keperluan demo PCD.
   // Estimasi kasar berdasarkan rasio dimensi wajah.
   // Untuk produksi: ganti dengan model TFLite age estimation dedikasi
   // (contoh: MobileNetV2 yang dilatih di dataset IMDB-WIKI atau UTKFace).
+  //
+  // Range output: 1–70 — mencakup semua kategori:
+  //   Baby(1–2), Toddler(3–7), Pre-Teen(8–14), Teenager(15–20),
+  //   Young Adult(21–32), Middle Aged(33–47), Senior(48–59), Elderly(60+)
   int _estimateAge(Face face) {
     final bb = face.boundingBox;
     final faceW = bb.width;
     final faceH = bb.height;
     final aspectRatio = faceH > 0 ? faceW / faceH : 1.0;
-    // Mapping naif: aspect ratio lebih lebar → perkiraan lebih muda
-    // Range: 15–55 tahun
-    final baseAge = (aspectRatio * 30 + 10).clamp(15.0, 55.0);
-    // Tambah variasi kecil berdasarkan ukuran kotak untuk konsistensi
+
+    // Mapping: aspect ratio + ukuran relatif kotak wajah → estimasi usia
+    // Wajah bayi/anak: cenderung lebih bulat (aspect ratio ~0.7–0.85)
+    // Wajah dewasa: cenderung lebih oval (aspect ratio ~0.85–1.0)
+    // Wajah lansia: cenderung lebih sempit/memanjang (aspect ratio ~1.0+)
+    final baseAge = (aspectRatio * 45 + 5).clamp(1.0, 65.0);
+
+    // Variasi kecil berdasarkan ukuran kotak untuk konsistensi antar frame
     final seed = (faceW * 0.1).toInt() % 7;
-    return (baseAge + seed - 3).toInt().clamp(15, 55);
+    return (baseAge + seed - 3).toInt().clamp(1, 70);
   }
 }

@@ -11,6 +11,7 @@ enum FaceExpression {
   angry,
   neutral,
   surprised,
+  sad,
 }
 
 extension FaceExpressionExtension on FaceExpression {
@@ -24,7 +25,9 @@ extension FaceExpressionExtension on FaceExpression {
       case FaceExpression.neutral:
         return 'Netral';
       case FaceExpression.surprised:
-        return 'Terkejut';
+        return 'Kaget';
+      case FaceExpression.sad:
+        return 'Sedih';
     }
   }
 
@@ -39,21 +42,25 @@ extension FaceExpressionExtension on FaceExpression {
         return '😐';
       case FaceExpression.surprised:
         return '😲';
+      case FaceExpression.sad:
+        return '😢';
     }
   }
 
   /// Warna bounding box overlay — sesuai spec Tim CAP:
-  /// Hijau=Happy, Merah=Angry, Biru=Neutral, Oranye=Surprised
+  /// Hijau=Senang, Merah=Marah, Biru=Netral, Oranye=Kaget, Ungu=Sedih
   Color get boxColor {
     switch (this) {
       case FaceExpression.happy:
-        return const Color(0xFF00E676); // Material Green A400
+        return const Color(0xFF00E676); // Green A400  — Senang
       case FaceExpression.angry:
-        return const Color(0xFFFF1744); // Material Red A400
+        return const Color(0xFFFF1744); // Red A400    — Marah
       case FaceExpression.neutral:
-        return const Color(0xFF2979FF); // Material Blue A400
+        return const Color(0xFF2979FF); // Blue A400   — Netral
       case FaceExpression.surprised:
-        return const Color(0xFFFF9100); // Material Orange A400
+        return const Color(0xFFFF9100); // Orange A400 — Kaget
+      case FaceExpression.sad:
+        return const Color(0xFFAA00FF); // Purple A700 — Sedih
     }
   }
 }
@@ -83,10 +90,22 @@ class FaceDetectionResult {
   /// Confidence score [0.0 – 1.0]
   final double confidence;
 
-  /// Label teks untuk chip overlay: "23th Senang 87%"
+  /// Kategori umur berdasarkan estimasi usia
+  String get ageCategory {
+    if (estimatedAge <= 2)  return 'Baby';        // 1–2
+    if (estimatedAge <= 7)  return 'Toddler';     // 3–7
+    if (estimatedAge <= 14) return 'Pre-Teen';    // 8–14
+    if (estimatedAge <= 20) return 'Teenager';    // 15–20
+    if (estimatedAge <= 32) return 'Young Adult'; // 21–32
+    if (estimatedAge <= 47) return 'Middle Aged'; // 33–47
+    if (estimatedAge <= 59) return 'Senior';      // 48–59
+    return 'Elderly';                             // 60+
+  }
+
+  /// Label teks untuk chip overlay: "Young Adult • Senang 87%"
   String get chipLabel {
     final pct = (confidence * 100).toStringAsFixed(0);
-    return '${estimatedAge}th ${expression.displayName} $pct%';
+    return '$ageCategory • ${expression.displayName} $pct%';
   }
 
   @override

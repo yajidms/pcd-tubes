@@ -261,7 +261,7 @@ class _CameraPageState extends ConsumerState<CameraPage>
       children: [
         _InfoChip(
           icon: '🎂',
-          label: '~${face.estimatedAge}th',
+          label: face.ageCategory,
           color: AppTheme.accent,
         ),
         const SizedBox(width: 8),

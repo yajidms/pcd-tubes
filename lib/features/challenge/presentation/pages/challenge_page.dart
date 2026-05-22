@@ -25,7 +25,7 @@ const _challengePool = [
   FaceExpression.neutral,
   FaceExpression.angry,
   FaceExpression.surprised,
-  FaceExpression.happy,
+  FaceExpression.sad,
 ];
 
 class ChallengePage extends ConsumerStatefulWidget {
