@@ -18,6 +18,8 @@ class DetectionState {
     this.isDetecting = false,
     this.isFrontCamera = true,
     this.imageSize = Size.zero,
+    this.previewSize = Size.zero,
+    this.availableCameras = const [],
     this.errorMessage,
     this.sessionActive = false,
     this.lastExpression,
@@ -27,14 +29,23 @@ class DetectionState {
   final bool isInitializing;
   final bool isDetecting;
   final bool isFrontCamera;
+
+  /// Dimensi frame kamera post-rotation (dipakai FaceOverlayPainter untuk scaling)
   final Size imageSize;
+
+  /// Dimensi preview dari CameraController.value.previewSize (sebelum rotate)
+  final Size previewSize;
+
+  /// Semua kamera yang tersedia (untuk switch camera UI)
+  final List<CameraDescription> availableCameras;
 
   final String? errorMessage;
   final bool sessionActive;
   final FaceExpression? lastExpression;
 
-  bool get hasError => errorMessage != null;
-  bool get hasFaces => faces.isNotEmpty;
+  bool get hasError  => errorMessage != null;
+  bool get hasFaces  => faces.isNotEmpty;
+  bool get canSwitch => availableCameras.length >= 2;
 
   DetectionState copyWith({
     List<FaceDetectionResult>? faces,
@@ -42,6 +53,8 @@ class DetectionState {
     bool? isDetecting,
     bool? isFrontCamera,
     Size? imageSize,
+    Size? previewSize,
+    List<CameraDescription>? availableCameras,
     String? errorMessage,
     bool clearError = false,
     bool? sessionActive,
@@ -49,38 +62,38 @@ class DetectionState {
     bool clearLastExpression = false,
   }) {
     return DetectionState(
-      faces: faces ?? this.faces,
-      isInitializing: isInitializing ?? this.isInitializing,
-      isDetecting: isDetecting ?? this.isDetecting,
-      isFrontCamera: isFrontCamera ?? this.isFrontCamera,
-      imageSize: imageSize ?? this.imageSize,
-      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
-      sessionActive: sessionActive ?? this.sessionActive,
-      lastExpression: clearLastExpression
-          ? null
-          : (lastExpression ?? this.lastExpression),
+      faces:             faces            ?? this.faces,
+      isInitializing:    isInitializing   ?? this.isInitializing,
+      isDetecting:       isDetecting      ?? this.isDetecting,
+      isFrontCamera:     isFrontCamera    ?? this.isFrontCamera,
+      imageSize:         imageSize        ?? this.imageSize,
+      previewSize:       previewSize      ?? this.previewSize,
+      availableCameras:  availableCameras ?? this.availableCameras,
+      errorMessage:      clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
 }
 
-/// Controller utama yang menghubungkan kamera, AI detektor, dan database.
+// ──────────────────────────────────────────────────────────────────────────────
+// DetectionNotifier — StateNotifier (Single Source of Truth)
+//
+// Mengelola seluruh siklus hidup deteksi:
+//   1. init kamera & detektor
+//   2. streaming + frame skip (setiap 3 frame untuk hemat CPU di resolusi high)
+//   3. update state dengan hasil deteksi
+//   4. switch kamera (front ↔ back)
+//   5. dispose semua resource
+// ──────────────────────────────────────────────────────────────────────────────
 class DetectionNotifier extends StateNotifier<DetectionState> {
   DetectionNotifier() : super(const DetectionState());
 
-  final _cameraService = CameraService();
+  final _cameraService  = CameraService();
   final _detectorService = FaceDetectorService();
 
   bool _isProcessingFrame = false;
   CameraDescription? _currentCamera;
-  Size? _cachedImageSize;
-  /// Waktu terakhir scan dilakukan (untuk jeda 2 detik antar scan).
-  DateTime? _lastScanTime;
-
-  DateTime? _sessionStartTime;
-  final Map<FaceExpression, int> _expressionCounts = {};
-  int _totalFacesDetected = 0;
-  double _ageSum = 0;
-  int _ageCount = 0;
+  CameraFrameRotation _currentRotation = CameraFrameRotation.cw90;
+  List<CameraDescription> _allCameras = [];
 
   CameraController? get cameraController => _cameraService.controller;
 
@@ -96,11 +109,13 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
     state = state.copyWith(isInitializing: true, clearError: true);
 
     try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) throw Exception('Tidak ada kamera ditemukan');
+      // 1. Ambil daftar semua kamera
+      _allCameras = await availableCameras();
+      if (_allCameras.isEmpty) throw Exception('Tidak ada kamera ditemukan');
 
       _currentCamera =
-          CameraService.getFrontCamera(cameras) ?? cameras.first;
+          CameraService.getFrontCamera(_allCameras) ?? _allCameras.first;
+      _currentRotation = CameraService.getRotation(_currentCamera!);
 
       final isFront = CameraService.isFrontCamera(_currentCamera!);
 
@@ -109,46 +124,86 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
         _detectorService.initialize(),
       ]);
 
+      // 3. Ambil previewSize dari controller
+      final ctrl = _cameraService.controller!;
+      final ps = ctrl.value.previewSize ?? const Size(1280, 720);
+
       state = state.copyWith(
-        isInitializing: false,
-        isFrontCamera: isFront,
-        clearError: true,
+        isInitializing:   false,
+        isFrontCamera:    isFront,
+        previewSize:      ps,
+        availableCameras: _allCameras,
+        clearError:       true,
       );
 
-      _startSession();
+      // 4. Mulai streaming
       await _startStream();
     } catch (e) {
       debugPrint('[DetectionNotifier] initCamera error: $e');
       state = state.copyWith(
         isInitializing: false,
-        errorMessage: 'Gagal membuka kamera: $e',
+        errorMessage:   'Gagal membuka kamera: $e',
       );
     }
   }
 
-  /// Memulai pengambilan gambar berulang dari kamera (stream).
-  /// Scan wajah dilakukan setiap 2 detik sekali.
+  // ── Switch Camera ────────────────────────────────────────────────────────────
+
+  Future<void> switchCamera() async {
+    if (_allCameras.length < 2 || _currentCamera == null) return;
+
+    // Pilih kamera selanjutnya (toggle front ↔ back)
+    final isCurrFront = CameraService.isFrontCamera(_currentCamera!);
+    final nextCamera = isCurrFront
+        ? (CameraService.getBackCamera(_allCameras) ?? _currentCamera!)
+        : (CameraService.getFrontCamera(_allCameras) ?? _currentCamera!);
+
+    if (nextCamera.name == _currentCamera!.name) return;
+
+    state = state.copyWith(isInitializing: true, faces: [], clearError: true);
+
+    try {
+      _currentCamera   = nextCamera;
+      _currentRotation = CameraService.getRotation(nextCamera);
+      final isFront    = CameraService.isFrontCamera(nextCamera);
+
+      await _cameraService.switchCamera(nextCamera, (CameraImage image) {
+        _frameCounter++;
+        if (_frameCounter % 3 != 0) return;
+        if (_isProcessingFrame) return;
+        _processFrame(image, _currentRotation);
+      });
+
+      final ps = _cameraService.controller?.value.previewSize ?? state.previewSize;
+
+      state = state.copyWith(
+        isInitializing: false,
+        isFrontCamera:  isFront,
+        previewSize:    ps,
+        clearError:     true,
+      );
+    } catch (e) {
+      debugPrint('[DetectionNotifier] switchCamera error: $e');
+      state = state.copyWith(
+        isInitializing: false,
+        errorMessage:   'Gagal switch kamera: $e',
+      );
+    }
+  }
+
+  // ── Streaming ────────────────────────────────────────────────────────────────
+
   Future<void> _startStream() async {
     if (_currentCamera == null) return;
-    final rotation = CameraService.getRotation(_currentCamera!);
 
     await _cameraService.startStream((CameraImage image) {
-      // Jeda 2 detik antar scan agar hasil stabil dan tidak flicker.
-      final now = DateTime.now();
-      if (_lastScanTime != null &&
-          now.difference(_lastScanTime!).inMilliseconds < 2000) {
-        return;
-      }
+      // Frame skip: proses 1 dari setiap 3 frame (hemat CPU di resolusi high)
+      _frameCounter++;
+      if (_frameCounter % 3 != 0) return;
 
       if (_isProcessingFrame) return;
 
-      _cachedImageSize ??= Size(
-        image.height.toDouble(),
-        image.width.toDouble(),
-      );
-
-      _lastScanTime = now;
-      _processFrame(image, rotation);
+      _processFrame(image, _currentRotation);
     });
   }
 
@@ -159,28 +214,37 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   ) async {
     _isProcessingFrame = true;
     try {
+      // ── Hitung imageSize post-rotation dengan benar ──────────────────────
+      // CameraImage.width/height = dimensi SENSOR (sebelum rotasi).
+      // Untuk rotasi 90° & 270°: lebar & tinggi dibalik.
+      // Untuk rotasi 180° (atau default 0°): tetap seperti aslinya.
+      final Size imgSize;
+      if (rotation == CameraFrameRotation.cw90 ||
+          rotation == CameraFrameRotation.cw270) {
+        // Portrait Android: sensor landscape → swap agar portrait
+        imgSize = Size(
+          image.height.toDouble(), // lebar setelah rotate = tinggi sensor
+          image.width.toDouble(),  // tinggi setelah rotate = lebar sensor
+        );
+      } else {
+        // cw180 atau default: tidak perlu swap
+        imgSize = Size(
+          image.width.toDouble(),
+          image.height.toDouble(),
+        );
+      }
+
       final results = await _detectorService.detectFromCameraImage(
         image,
-        rotation: rotation,
+        rotation:  rotation,
+        imageSize: imgSize, // untuk clamp inflate bbox
       );
-
-      if (results.isNotEmpty) {
-        for (final face in results) {
-          _expressionCounts[face.expression] =
-              (_expressionCounts[face.expression] ?? 0) + 1;
-          _ageSum += face.estimatedAge;
-          _ageCount++;
-        }
-        _totalFacesDetected += results.length;
-      }
 
       if (mounted) {
         state = state.copyWith(
-          faces: results,
+          faces:      results,
           isDetecting: true,
-          imageSize: _cachedImageSize,
-          lastExpression:
-              results.isNotEmpty ? results.first.expression : null,
+          imageSize:   imgSize,
         );
       }
     } catch (e) {
@@ -190,54 +254,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
     }
   }
 
-
-  void _startSession() {
-    _sessionStartTime = DateTime.now();
-    _expressionCounts.clear();
-    _totalFacesDetected = 0;
-    _ageSum = 0;
-    _ageCount = 0;
-    state = state.copyWith(sessionActive: true);
-    debugPrint('[DetectionNotifier] Session started');
-  }
-
-  /// Mengakhiri sesi saat ini dan menyimpan statistik rekaman ke MongoDB.
-  Future<void> endSession() async {
-    if (_sessionStartTime == null) return;
-
-    final endTime = DateTime.now();
-    final duration = endTime.difference(_sessionStartTime!).inSeconds;
-
-    if (duration >= 3 && _totalFacesDetected > 0) {
-      String dominantExpr = 'neutral';
-      int maxCount = 0;
-      final distMap = <String, int>{};
-
-      for (final entry in _expressionCounts.entries) {
-        distMap[entry.key.name] = entry.value;
-        if (entry.value > maxCount) {
-          maxCount = entry.value;
-          dominantExpr = entry.key.name;
-        }
-      }
-
-      final session = DetectionSession(
-        startTime: _sessionStartTime!,
-        endTime: endTime,
-        durationSeconds: duration,
-        expressionDistribution: distMap,
-        averageAge: _ageCount > 0 ? _ageSum / _ageCount : 0,
-        totalFacesDetected: _totalFacesDetected,
-        dominantExpression: dominantExpr,
-      );
-
-      MongoDbService.logDetectionSession(session);
-      debugPrint('[DetectionNotifier] Session ended & logged: ${duration}s');
-    }
-
-    _sessionStartTime = null;
-    state = state.copyWith(sessionActive: false);
-  }
+  // ── Resume setelah app dari background ─────────────────────────────────────
 
   Future<void> resumeStream() async {
     if (_cameraService.isInitialized && !_cameraService.isStreaming) {
@@ -247,6 +264,8 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
       await _startStream();
     }
   }
+
+  // ── Dispose ─────────────────────────────────────────────────────────────────
 
   @override
   void dispose() {
