@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.dart';
 
+// ──────────────────────────────────────────────────────────────────────────────
 // FaceOverlayPainter — CustomPainter untuk overlay bounding box real-time
 //
 // FIX UTAMA:
@@ -43,6 +44,7 @@ class FaceOverlayPainter extends CustomPainter {
   final bool isFrontCamera;
   final double opacity;   // 0.0–1.0, dianimasikan oleh parent
 
+  // ── Paint ──────────────────────────────────────────────────────────────────
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -87,12 +89,6 @@ class FaceOverlayPainter extends CustomPainter {
   Rect _scaleRect(Rect bbox, Size canvasSize, _CoverParams cp) {
     double left, top, right, bottom;
 
-    double left = bbox.left * scaleX;
-    double top = bbox.top * scaleY;
-    double right = bbox.right * scaleX;
-    double bottom = bbox.bottom * scaleY;
-
-    // Front camera: mirror horizontal agar sesuai cermin.
     if (isFrontCamera) {
       // Mirror horizontal: x_mirrored = imageWidth - x
       final mirroredLeft  = imageSize.width - bbox.right;
@@ -117,6 +113,7 @@ class FaceOverlayPainter extends CustomPainter {
     );
   }
 
+  // ── Bounding Box ───────────────────────────────────────────────────────────
 
   void _drawBoundingBox(Canvas canvas, Rect rect, Color color) {
     // Skip jika rect terlalu kecil (artefak deteksi)
@@ -157,16 +154,21 @@ class FaceOverlayPainter extends CustomPainter {
     // Panjang garis sudut: 15% dari sisi terpendek box (min 14, max 28)
     final len = (math.min(rect.width, rect.height) * 0.15).clamp(14.0, 28.0);
 
+    // Top-left
     canvas.drawLine(rect.topLeft, rect.topLeft.translate(len, 0), paint);
     canvas.drawLine(rect.topLeft, rect.topLeft.translate(0, len), paint);
+    // Top-right
     canvas.drawLine(rect.topRight, rect.topRight.translate(-len, 0), paint);
     canvas.drawLine(rect.topRight, rect.topRight.translate(0, len), paint);
+    // Bottom-left
     canvas.drawLine(rect.bottomLeft, rect.bottomLeft.translate(len, 0), paint);
     canvas.drawLine(rect.bottomLeft, rect.bottomLeft.translate(0, -len), paint);
+    // Bottom-right
     canvas.drawLine(rect.bottomRight, rect.bottomRight.translate(-len, 0), paint);
     canvas.drawLine(rect.bottomRight, rect.bottomRight.translate(0, -len), paint);
   }
 
+  // ── Chip Label ─────────────────────────────────────────────────────────────
 
   void _drawChipLabel(
     Canvas canvas,
@@ -231,12 +233,14 @@ class FaceOverlayPainter extends CustomPainter {
       chipPaint,
     );
 
+    // Teks label
     tp.paint(
       canvas,
       Offset(chipLeft + padding.left, chipTop + padding.top),
     );
   }
 
+  // ── shouldRepaint ──────────────────────────────────────────────────────────
 
   @override
   bool shouldRepaint(FaceOverlayPainter oldDelegate) {

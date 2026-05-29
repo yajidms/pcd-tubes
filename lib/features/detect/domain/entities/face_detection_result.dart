@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+// ──────────────────────────────────────────────────────────────────────────────
 // ENUM: FaceExpression
 // 7 kelas ekspresi sesuai dataset FER-2013 (via landmark heuristics mesh).
 // NOTE: Untuk akurasi produksi, ganti _classifyExpression() di model_inference
@@ -7,8 +8,8 @@ import 'package:flutter/material.dart';
 // ──────────────────────────────────────────────────────────────────────────────
 enum FaceExpression {
   happy,
-  sad,
   angry,
+  neutral,
   surprised,
   sad,
   disgusted,
@@ -21,8 +22,6 @@ extension FaceExpressionExtension on FaceExpression {
     switch (this) {
       case FaceExpression.happy:
         return 'Senang';
-      case FaceExpression.sad:
-        return 'Sedih';
       case FaceExpression.angry:
         return 'Marah';
       case FaceExpression.neutral:
@@ -38,13 +37,11 @@ extension FaceExpressionExtension on FaceExpression {
     }
   }
 
-  /// Emoji representasi ekspresi untuk Challenge Mode & Journal
+  /// Emoji representasi ekspresi untuk Challenge Mode
   String get emoji {
     switch (this) {
       case FaceExpression.happy:
         return '😊';
-      case FaceExpression.sad:
-        return '😢';
       case FaceExpression.angry:
         return '😠';
       case FaceExpression.neutral:
@@ -83,10 +80,12 @@ extension FaceExpressionExtension on FaceExpression {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
 // ENTITY: FaceDetectionResult
 // Immutable data class. Koordinat boundingBox dalam camera-image pixel space
 // (post-rotation, sudah disesuaikan library face_detection_tflite).
 // Scaling ke screen space dilakukan oleh FaceOverlayPainter.
+// ──────────────────────────────────────────────────────────────────────────────
 class FaceDetectionResult {
   const FaceDetectionResult({
     required this.boundingBox,

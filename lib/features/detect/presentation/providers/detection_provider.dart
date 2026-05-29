@@ -5,12 +5,12 @@ import 'package:flutter/material.dart' show Size;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pcd_tubes/core/inference/model_inference.dart';
-import 'package:pcd_tubes/core/models/detection_session.dart';
 import 'package:pcd_tubes/core/services/camera_service.dart';
-import 'package:pcd_tubes/core/services/mongodb_service.dart';
 import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.dart';
 
-/// Menyimpan data status kamera dan hasil deteksi wajah saat ini.
+// ──────────────────────────────────────────────────────────────────────────────
+// DetectionState — immutable state object
+// ──────────────────────────────────────────────────────────────────────────────
 class DetectionState {
   const DetectionState({
     this.faces = const [],
@@ -21,8 +21,6 @@ class DetectionState {
     this.previewSize = Size.zero,
     this.availableCameras = const [],
     this.errorMessage,
-    this.sessionActive = false,
-    this.lastExpression,
   });
 
   final List<FaceDetectionResult> faces;
@@ -40,8 +38,6 @@ class DetectionState {
   final List<CameraDescription> availableCameras;
 
   final String? errorMessage;
-  final bool sessionActive;
-  final FaceExpression? lastExpression;
 
   bool get hasError  => errorMessage != null;
   bool get hasFaces  => faces.isNotEmpty;
@@ -57,9 +53,6 @@ class DetectionState {
     List<CameraDescription>? availableCameras,
     String? errorMessage,
     bool clearError = false,
-    bool? sessionActive,
-    FaceExpression? lastExpression,
-    bool clearLastExpression = false,
   }) {
     return DetectionState(
       faces:             faces            ?? this.faces,
@@ -90,6 +83,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   final _cameraService  = CameraService();
   final _detectorService = FaceDetectorService();
 
+  int _frameCounter = 0;
   bool _isProcessingFrame = false;
   CameraDescription? _currentCamera;
   CameraFrameRotation _currentRotation = CameraFrameRotation.cw90;
@@ -97,14 +91,10 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
   CameraController? get cameraController => _cameraService.controller;
 
-  /// Membuka akses kamera depan dan inisialisasi model AI.
+  // ── Inisialisasi ────────────────────────────────────────────────────────────
+
   Future<void> initCamera() async {
     if (state.isInitializing) return;
-
-    // Reset state internal agar scan berjalan langsung dari awal.
-    _cachedImageSize = null;
-    _lastScanTime = null;
-    _isProcessingFrame = false;
 
     state = state.copyWith(isInitializing: true, clearError: true);
 
@@ -119,6 +109,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
       final isFront = CameraService.isFrontCamera(_currentCamera!);
 
+      // 2. Init kamera & detektor secara parallel
       await Future.wait([
         _cameraService.initialize(_currentCamera!),
         _detectorService.initialize(),
@@ -207,11 +198,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
     });
   }
 
-  /// Menganalisis satu frame gambar untuk mencari koordinat dan ekspresi wajah.
-  Future<void> _processFrame(
-    CameraImage image,
-    CameraFrameRotation rotation,
-  ) async {
+  void _processFrame(CameraImage image, CameraFrameRotation rotation) async {
     _isProcessingFrame = true;
     try {
       // ── Hitung imageSize post-rotation dengan benar ──────────────────────
@@ -247,8 +234,6 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
           imageSize:   imgSize,
         );
       }
-    } catch (e) {
-      debugPrint('[DetectionNotifier] _processFrame error: $e');
     } finally {
       _isProcessingFrame = false;
     }
@@ -258,9 +243,6 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
   Future<void> resumeStream() async {
     if (_cameraService.isInitialized && !_cameraService.isStreaming) {
-      _cachedImageSize = null;
-
-      _startSession();
       await _startStream();
     }
   }
@@ -269,17 +251,16 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
   @override
   void dispose() {
-    endSession();
-
     _cameraService.dispose();
-
     _detectorService.dispose();
-
     super.dispose();
   }
 }
 
-/// Global provider agar state deteksi ini bisa diakses dari UI (halaman) mana saja.
+// ──────────────────────────────────────────────────────────────────────────────
+// Provider — global access point (Single Source of Truth untuk seluruh fitur)
+// Digunakan oleh CameraPage DAN ChallengePage — tidak perlu init dua kali.
+// ──────────────────────────────────────────────────────────────────────────────
 final detectionProvider =
     StateNotifierProvider<DetectionNotifier, DetectionState>(
   (ref) => DetectionNotifier(),

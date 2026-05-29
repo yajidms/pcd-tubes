@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:camera/camera.dart';
 import 'package:face_detection_tflite/face_detection_tflite.dart';
 import 'package:flutter/foundation.dart';
@@ -25,6 +27,7 @@ class FaceDetectorService {
 
   bool get isInitialized => _isInitialized;
 
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   /// Inisialisasi BlazeFace model.
   /// [useShortRange] = true untuk kamera jauh (default: frontCamera close-up).
@@ -49,11 +52,14 @@ class FaceDetectorService {
   }
 
   Future<void> dispose() async {
+    await _detector?.dispose();
+    _detector = null;
     _isInitialized = false;
     _ageHistory.clear();
     debugPrint('[FaceDetectorService] Disposed');
   }
 
+  // ── Core Detection ─────────────────────────────────────────────────────────
 
   /// Deteksi wajah dari CameraImage (YUV420 Android).
   /// Semua cvtColor/rotate/downscale berjalan di isolate — tidak block UI.
@@ -120,7 +126,7 @@ class FaceDetectorService {
       FaceExpression expression = FaceExpression.neutral;
       double confidence = 0.70;
 
-      if (mesh != null && mesh.length >= 468) {
+      if (mesh != null) {
         final result = _classifyExpression(mesh);
         expression = result.expression;
         confidence = result.confidence;
@@ -320,10 +326,4 @@ class FaceDetectorService {
     final sizeSeed = ((faceW + faceH) * 0.05).toInt() % 5;
     return (baseAge + sizeSeed - 2).toInt().clamp(1, 70);
   }
-}
-
-class _Pt {
-  final double x;
-  final double y;
-  const _Pt(this.x, this.y);
 }

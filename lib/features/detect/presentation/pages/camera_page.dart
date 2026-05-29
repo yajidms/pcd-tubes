@@ -75,11 +75,10 @@ class _CameraPageState extends ConsumerState<CameraPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       ref.read(detectionProvider.notifier).resumeStream();
-    } else if (state == AppLifecycleState.paused) {
-      ref.read(detectionProvider.notifier).endSession();
     }
   }
 
+  // ── Fade trigger ──────────────────────────────────────────────────────────
   void _handleFaceVisibilityChange(bool hasFaces) {
     if (hasFaces && !_hadFaces) {
       _fadeController.forward();
@@ -91,6 +90,7 @@ class _CameraPageState extends ConsumerState<CameraPage>
     _hadFaces = hasFaces;
   }
 
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -111,9 +111,6 @@ class _CameraPageState extends ConsumerState<CameraPage>
     if (controller == null || !controller.value.isInitialized) {
       return _buildLoadingView();
     }
-
-    final previewWidth = controller.value.previewSize?.height ?? 1;
-    final previewHeight = controller.value.previewSize?.width ?? 1;
 
     return Stack(
       fit: StackFit.expand,
@@ -252,7 +249,7 @@ class _CameraPageState extends ConsumerState<CameraPage>
             if (state.hasFaces)
               AnimatedBuilder(
                 animation: _fadeAnim,
-                builder: (context, child) => Opacity(
+                builder: (_, _) => Opacity(
                   opacity: _fadeAnim.value,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -319,7 +316,7 @@ class _CameraPageState extends ConsumerState<CameraPage>
         ),
         child: AnimatedBuilder(
           animation: _fadeAnim,
-          builder: (context, child) {
+          builder: (_, _) {
             if (!state.hasFaces) {
               return _buildNoFaceHint();
             }

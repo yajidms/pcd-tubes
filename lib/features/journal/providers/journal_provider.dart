@@ -142,5 +142,6 @@ final journalProvider =
 /// Suggest mood berdasarkan ekspresi terakhir terdeteksi
 final suggestedMoodProvider = Provider<FaceExpression?>((ref) {
   final detectionState = ref.watch(detectionProvider);
-  return detectionState.lastExpression;
+  // Ambil ekspresi dari wajah pertama yang terdeteksi (null jika tidak ada)
+  return detectionState.faces.firstOrNull?.expression;
 });

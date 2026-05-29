@@ -2,6 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:face_detection_tflite/face_detection_tflite.dart';
 import 'package:flutter/widgets.dart';
 
+// ──────────────────────────────────────────────────────────────────────────────
 // CameraService  (Single Responsibility — hanya lifecycle kamera)
 //
 // Mengelola: init, startStream, stopStream, switchCamera, dispose.
@@ -9,6 +10,7 @@ import 'package:flutter/widgets.dart';
 // saat app masuk background — mencegah memory leak.
 //
 // Target: Android, ImageFormatGroup.yuv420
+// ──────────────────────────────────────────────────────────────────────────────
 class CameraService with WidgetsBindingObserver {
   CameraController? _controller;
   CameraDescription? _currentCamera;
@@ -20,17 +22,11 @@ class CameraService with WidgetsBindingObserver {
   bool                 get isStreaming      => _isStreaming;
   bool                 get isInitialized   => _controller?.value.isInitialized ?? false;
 
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   /// Inisialisasi kamera dengan deskripsi yang dipilih.
   /// Resolusi `high` (1280×720) untuk akurasi deteksi lebih baik.
   Future<void> initialize(CameraDescription cameraDescription) async {
-    // Bersihkan controller lama sebelum buat yang baru.
-    if (_controller != null) {
-      await stopStream();
-      await _controller!.dispose();
-      _controller = null;
-    }
-
     _isDisposed = false;
     _currentCamera = cameraDescription;
     WidgetsBinding.instance.addObserver(this);
@@ -39,7 +35,7 @@ class CameraService with WidgetsBindingObserver {
       cameraDescription,
       ResolutionPreset.high,      // 1280×720 — lebih akurat dari medium
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
+      imageFormatGroup: ImageFormatGroup.yuv420, // Android YUV420
     );
 
     await _controller!.initialize();
@@ -98,6 +94,7 @@ class CameraService with WidgetsBindingObserver {
     debugPrint('[CameraService] Disposed');
   }
 
+  // ── AppLifecycleObserver — mencegah resource leak saat background ──────────
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -117,6 +114,7 @@ class CameraService with WidgetsBindingObserver {
     }
   }
 
+  // ── Static Helpers ─────────────────────────────────────────────────────────
 
   /// Rotasi frame berdasarkan sensor orientation kamera (Android portrait).
   /// front camera biasanya 270°, back camera biasanya 90°.
