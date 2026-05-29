@@ -17,7 +17,14 @@ class AppTheme {
   static const Color onSurface = Color(0xFFCCCCCC);
   static const Color accent = Color(0xFF00BCD4);
 
+  // Palet warna emosi — digunakan Dashboard, Journal & bounding box overlay
+  static const Color emotionHappy   = Color(0xFFFFCA28); // Amber 400
+  static const Color emotionSad     = Color(0xFF42A5F5); // Blue 400
+  static const Color emotionAngry   = Color(0xFFEF5350); // Red 400
+  static const Color emotionFear    = Color(0xFFAB47BC); // Purple 400
+  static const Color emotionNeutral = Color(0xFFBDBDBD); // Grey 400
 
+  // Alias untuk kompatibilitas backward dengan kode lama
   static const Color primaryColor = primary;
 
   static ThemeData get darkTheme {
