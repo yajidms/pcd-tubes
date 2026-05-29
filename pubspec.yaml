@@ -66,8 +66,8 @@ flutter:
   uses-material-design: true
 
   # Assets — TFLite models (placeholder, isi dengan model custom nanti)
-  # assets:
-  #   - assets/models/
+  assets:
+    - assets/models/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
