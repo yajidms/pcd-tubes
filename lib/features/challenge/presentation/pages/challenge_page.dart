@@ -9,23 +9,12 @@ import 'package:pcd_tubes/features/detect/presentation/providers/detection_provi
 import 'package:pcd_tubes/features/detect/presentation/widgets/face_overlay_painter.dart';
 import 'package:pcd_tubes/shared/theme/app_theme.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// ChallengePage — Gamifikasi Ekspresi
-//
-// Flow:
-//   1. Tampilkan target ekspresi (emoji besar + nama)
-//   2. Monitor deteksi real-time dari detectionProvider (SSOT yang sama)
-//   3. Jika ekspresi cocok selama 3 detik → sukses, tambah skor, lanjut
-//   4. Animasi visual saat berhasil (bounce + konfeti warna)
-// ──────────────────────────────────────────────────────────────────────────────
-
-// Urutan challenge: 5 ronde dari pool ekspresi
 const _challengePool = [
   FaceExpression.happy,
-  FaceExpression.neutral,
+  FaceExpression.sad,
   FaceExpression.angry,
   FaceExpression.surprised,
-  FaceExpression.happy,
+  FaceExpression.disgusted,
 ];
 
 class ChallengePage extends ConsumerStatefulWidget {
@@ -37,12 +26,12 @@ class ChallengePage extends ConsumerStatefulWidget {
 
 class _ChallengePageState extends ConsumerState<ChallengePage>
     with TickerProviderStateMixin {
-  // ── State ──────────────────────────────────────────────────────────────────
   int _currentRound = 0;
   int _score = 0;
   bool _isSuccess = false;
   bool _isGameOver = false;
-  double _holdProgress = 0.0; // 0.0 → 1.0 dalam 3 detik
+  double _holdProgress = 0.0;
+
 
   Timer? _holdTimer;
   late final AnimationController _successAnim;
@@ -59,7 +48,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
   void initState() {
     super.initState();
 
-    // Animasi sukses: scale bounce
     _successAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -70,13 +58,11 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
       TweenSequenceItem(tween: Tween(begin: 0.9, end: 1.0), weight: 30),
     ]).animate(CurvedAnimation(parent: _successAnim, curve: Curves.easeInOut));
 
-    // Animasi pulse ring saat menunggu
     _pulseAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
 
-    // Pastikan kamera sudah berjalan
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final state = ref.read(detectionProvider);
       if (!state.isDetecting && !state.isInitializing) {
@@ -93,7 +79,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
     super.dispose();
   }
 
-  // ── Logic ──────────────────────────────────────────────────────────────────
 
   void _checkExpression(List<FaceDetectionResult> faces) {
     if (_isSuccess || _isGameOver || faces.isEmpty) {
@@ -115,9 +100,9 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
   void _startOrContinueHold() {
     if (_holdTimer != null && _holdTimer!.isActive) return;
 
-    // Start hold countdown: update progress tiap 100ms
     const tick = Duration(milliseconds: 100);
-    const totalTicks = _holdDurationSeconds * 10; // 30 ticks
+    const totalTicks = _holdDurationSeconds * 10;
+
     int tickCount = 0;
 
     _holdTimer = Timer.periodic(tick, (timer) {
@@ -148,7 +133,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
     });
     _successAnim.forward(from: 0);
 
-    // Tunggu 1.5 detik lalu lanjut ke ronde berikutnya
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (!mounted) return;
       if (_currentRound + 1 >= _totalRounds) {
@@ -174,13 +158,11 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
     _holdTimer?.cancel();
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final detectionState = ref.watch(detectionProvider);
 
-    // Validasi ekspresi setiap kali state berubah
     if (!_isSuccess && !_isGameOver) {
       _checkExpression(detectionState.faces);
     }
@@ -196,16 +178,13 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
       body: SafeArea(
         child: Column(
           children: [
-            // ── Header ─────────────────────────────────────────────────────
             _buildHeader(),
 
-            // ── Camera Preview + Overlay ────────────────────────────────────
             Expanded(
               flex: 5,
               child: _buildCameraSection(detectionState, controller),
             ),
 
-            // ── Target Expression Card ───────────────────────────────────────
             Expanded(
               flex: 4,
               child: _buildTargetSection(detectionState),
@@ -236,7 +215,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
               ),
             ),
           ),
-          // Skor
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -271,7 +249,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Camera preview
         ClipRect(
           child: OverflowBox(
             alignment: Alignment.center,
@@ -286,7 +263,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
           ),
         ),
 
-        // Overlay deteksi (pakai painter yang sama)
         CustomPaint(
           painter: FaceOverlayPainter(
             faces: state.faces,
@@ -296,7 +272,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
           ),
         ),
 
-        // Overlay sukses
         if (_isSuccess) _buildSuccessOverlay(),
       ],
     );
@@ -323,7 +298,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: Column(
         children: [
-          // Progress ronde
           Row(
             children: List.generate(_totalRounds, (i) {
               final isDone = i < _currentRound;
@@ -346,7 +320,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
           ),
           const SizedBox(height: 16),
 
-          // Instruksi
           Text(
             'Ronde ${_currentRound + 1} dari $_totalRounds',
             style: const TextStyle(color: Colors.white38, fontSize: 12),
@@ -362,7 +335,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
           ),
           const SizedBox(height: 12),
 
-          // Target ekspresi — emoji besar + nama
           ScaleTransition(
             scale: _scaleAnim,
             child: Column(
@@ -404,7 +376,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
 
           const SizedBox(height: 12),
 
-          // Hold progress bar
           _buildHoldProgressBar(state),
         ],
       ),

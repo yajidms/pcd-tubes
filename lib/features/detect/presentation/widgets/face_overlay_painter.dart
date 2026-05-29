@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
 // FaceOverlayPainter — CustomPainter untuk overlay bounding box real-time
 //
 // Menerima koordinat dalam camera-image space, melakukan scaling ke canvas.
@@ -13,7 +12,6 @@ import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.
 //   • Chip label: "[Usia]th [Ekspresi] [Confidence]%"
 //   • Opacity untuk animasi fade-in/out (dikelola parent via AnimationController)
 //   • Mirroring horizontal untuk front camera
-// ──────────────────────────────────────────────────────────────────────────────
 class FaceOverlayPainter extends CustomPainter {
   const FaceOverlayPainter({
     required this.faces,
@@ -23,11 +21,12 @@ class FaceOverlayPainter extends CustomPainter {
   });
 
   final List<FaceDetectionResult> faces;
-  final Size imageSize; // dimensi frame setelah rotasi
-  final bool isFrontCamera;
-  final double opacity; // 0.0–1.0, dianimasikan oleh parent
+  final Size imageSize;
 
-  // ── Paint ──────────────────────────────────────────────────────────────────
+  final bool isFrontCamera;
+  final double opacity;
+
+
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -40,38 +39,33 @@ class FaceOverlayPainter extends CustomPainter {
     }
   }
 
-  // ── Koordinat Scaling ──────────────────────────────────────────────────────
 
-  /// Scale bounding box dari camera-image coords → canvas (screen) coords.
-  /// Untuk front camera: mirror horizontal agar sesuai CameraPreview.
+
+  /// Mencocokkan koordinat bounding box dari kamera ke layar.
   Rect _scaleRect(Rect bbox, Size canvasSize) {
+    // Karena CustomPaint sekarang seukuran dengan CameraPreview (SizedBox),
+    // kita hanya perlu melakukan mapping rasio secara langsung.
     final scaleX = canvasSize.width / imageSize.width;
     final scaleY = canvasSize.height / imageSize.height;
 
+    double left = bbox.left * scaleX;
+    double top = bbox.top * scaleY;
+    double right = bbox.right * scaleX;
+    double bottom = bbox.bottom * scaleY;
+
+    // Front camera: mirror horizontal agar sesuai cermin.
     if (isFrontCamera) {
-      // Mirror: x_screen = canvasWidth - x_camera * scaleX
-      final left = canvasSize.width - bbox.right * scaleX;
-      final right = canvasSize.width - bbox.left * scaleX;
-      return Rect.fromLTRB(
-        left,
-        bbox.top * scaleY,
-        right,
-        bbox.bottom * scaleY,
-      );
-    } else {
-      return Rect.fromLTRB(
-        bbox.left * scaleX,
-        bbox.top * scaleY,
-        bbox.right * scaleX,
-        bbox.bottom * scaleY,
-      );
+      final mirroredLeft = canvasSize.width - right;
+      final mirroredRight = canvasSize.width - left;
+      left = mirroredLeft;
+      right = mirroredRight;
     }
+
+    return Rect.fromLTRB(left, top, right, bottom);
   }
 
-  // ── Bounding Box ───────────────────────────────────────────────────────────
 
   void _drawBoundingBox(Canvas canvas, Rect rect, Color color) {
-    // Border utama — rounded rect
     final borderPaint = Paint()
       ..color = color.withOpacity(opacity)
       ..style = PaintingStyle.stroke
@@ -83,7 +77,6 @@ class FaceOverlayPainter extends CustomPainter {
       borderPaint,
     );
 
-    // Corner accents (gaya scanner/HUD)
     _drawCornerAccents(canvas, rect, color);
   }
 
@@ -95,23 +88,19 @@ class FaceOverlayPainter extends CustomPainter {
       ..strokeWidth = 3.5
       ..strokeCap = StrokeCap.round;
 
-    const len = 18.0; // panjang garis sudut
+    const len = 18.0;
 
-    // Top-left
+
     canvas.drawLine(rect.topLeft, rect.topLeft.translate(len, 0), paint);
     canvas.drawLine(rect.topLeft, rect.topLeft.translate(0, len), paint);
-    // Top-right
     canvas.drawLine(rect.topRight, rect.topRight.translate(-len, 0), paint);
     canvas.drawLine(rect.topRight, rect.topRight.translate(0, len), paint);
-    // Bottom-left
     canvas.drawLine(rect.bottomLeft, rect.bottomLeft.translate(len, 0), paint);
     canvas.drawLine(rect.bottomLeft, rect.bottomLeft.translate(0, -len), paint);
-    // Bottom-right
     canvas.drawLine(rect.bottomRight, rect.bottomRight.translate(-len, 0), paint);
     canvas.drawLine(rect.bottomRight, rect.bottomRight.translate(0, -len), paint);
   }
 
-  // ── Chip Label ─────────────────────────────────────────────────────────────
 
   void _drawChipLabel(Canvas canvas, Rect faceRect, String label, Color color) {
     const fontSize = 11.0;
@@ -135,15 +124,14 @@ class FaceOverlayPainter extends CustomPainter {
     final chipWidth = tp.width + padding.horizontal;
     final chipHeight = tp.height + padding.vertical;
 
-    // Posisi chip: di atas bounding box (atau di bawah jika terlalu dekat tepi atas)
     double chipTop = faceRect.top - chipHeight - 6;
-    if (chipTop < 4) chipTop = faceRect.top + 6; // fallback ke dalam box
+    if (chipTop < 4) chipTop = faceRect.top + 6;
+
 
     final chipLeft = faceRect.left.clamp(4.0, double.infinity);
 
     final chipRect = Rect.fromLTWH(chipLeft, chipTop, chipWidth, chipHeight);
 
-    // Background chip (warna ekspresi)
     final chipPaint = Paint()
       ..color = color.withOpacity(opacity * 0.92)
       ..style = PaintingStyle.fill;
@@ -153,14 +141,12 @@ class FaceOverlayPainter extends CustomPainter {
       chipPaint,
     );
 
-    // Teks label
     tp.paint(
       canvas,
       Offset(chipLeft + padding.left, chipTop + padding.top),
     );
   }
 
-  // ── shouldRepaint ──────────────────────────────────────────────────────────
 
   @override
   bool shouldRepaint(FaceOverlayPainter oldDelegate) {

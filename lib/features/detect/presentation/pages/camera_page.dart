@@ -7,12 +7,7 @@ import 'package:pcd_tubes/features/detect/presentation/providers/detection_provi
 import 'package:pcd_tubes/features/detect/presentation/widgets/face_overlay_painter.dart';
 import 'package:pcd_tubes/shared/theme/app_theme.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// CameraPage — halaman utama live detection
-//
-// Layout: Stack(CameraPreview → CustomPaint overlay → HUD controls)
-// Animasi fade 200ms menggunakan AnimationController saat wajah muncul/hilang.
-// ──────────────────────────────────────────────────────────────────────────────
+/// UI Halaman yang menampilkan feed kamera dan elemen overlay pendeteksi wajah.
 class CameraPage extends ConsumerStatefulWidget {
   const CameraPage({super.key});
 
@@ -31,7 +26,8 @@ class _CameraPageState extends ConsumerState<CameraPage>
   void initState() {
     super.initState();
 
-    // ── Animasi fade 200ms ─────────────────────────────────────────────────
+    WidgetsBinding.instance.addObserver(this);
+
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -41,7 +37,6 @@ class _CameraPageState extends ConsumerState<CameraPage>
       curve: Curves.easeInOut,
     );
 
-    // Mulai inisialisasi kamera setelah frame pertama
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(detectionProvider.notifier).initCamera();
     });
@@ -49,19 +44,21 @@ class _CameraPageState extends ConsumerState<CameraPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _fadeController.dispose();
+    ref.read(detectionProvider.notifier).endSession();
     super.dispose();
   }
 
-  // ── Lifecycle: resume dari background ─────────────────────────────────────
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       ref.read(detectionProvider.notifier).resumeStream();
+    } else if (state == AppLifecycleState.paused) {
+      ref.read(detectionProvider.notifier).endSession();
     }
   }
 
-  // ── Fade trigger ──────────────────────────────────────────────────────────
   void _handleFaceVisibilityChange(bool hasFaces) {
     if (hasFaces && !_hadFaces) {
       _fadeController.forward();
@@ -71,13 +68,11 @@ class _CameraPageState extends ConsumerState<CameraPage>
     _hadFaces = hasFaces;
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(detectionProvider);
 
-    // Trigger animasi saat jumlah wajah berubah ada/tidak
     _handleFaceVisibilityChange(state.hasFaces);
 
     return Scaffold(
@@ -90,55 +85,55 @@ class _CameraPageState extends ConsumerState<CameraPage>
     if (state.isInitializing) return _buildLoadingView();
     if (state.hasError) return _buildErrorView(state.errorMessage!);
 
-    final controller = ref
-        .read(detectionProvider.notifier)
-        .cameraController;
+    final controller = ref.read(detectionProvider.notifier).cameraController;
 
     if (controller == null || !controller.value.isInitialized) {
       return _buildLoadingView();
     }
 
+    final previewWidth = controller.value.previewSize?.height ?? 1;
+    final previewHeight = controller.value.previewSize?.width ?? 1;
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        // ── 1. Camera Preview ────────────────────────────────────────────────
-        _buildCameraPreview(controller),
-
-        // ── 2. Face Detection Overlay ────────────────────────────────────────
-        AnimatedBuilder(
-          animation: _fadeAnim,
-          builder: (_, _) => CustomPaint(
-            painter: FaceOverlayPainter(
-              faces: state.faces,
-              imageSize: state.imageSize,
-              isFrontCamera: state.isFrontCamera,
-              opacity: _fadeAnim.value,
+        // Camera preview & overlay di-scale bersamaan dengan FittedBox
+        ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.center,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: previewWidth,
+                height: previewHeight,
+                child: Stack(
+                  children: [
+                    CameraPreview(controller),
+                    AnimatedBuilder(
+                      animation: _fadeAnim,
+                      builder: (context, child) => CustomPaint(
+                        size: Size(previewWidth, previewHeight),
+                        painter: FaceOverlayPainter(
+                          faces: state.faces,
+                          imageSize: state.imageSize,
+                          isFrontCamera: state.isFrontCamera,
+                          opacity: _fadeAnim.value,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
 
-        // ── 3. HUD Top Bar ───────────────────────────────────────────────────
+        // Elemen UI atas: tombol kembali dan info jumlah wajah terdeteksi.
         _buildTopHUD(state),
 
-        // ── 4. HUD Bottom Bar ────────────────────────────────────────────────
+        // Elemen UI bawah: ringkasan informasi umur, emosi, dan keyakinan AI.
         _buildBottomHUD(state),
       ],
-    );
-  }
-
-  Widget _buildCameraPreview(CameraController controller) {
-    return ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.center,
-        child: FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: controller.value.previewSize?.height ?? 1,
-            height: controller.value.previewSize?.width ?? 1,
-            child: CameraPreview(controller),
-          ),
-        ),
-      ),
     );
   }
 
@@ -163,7 +158,22 @@ class _CameraPageState extends ConsumerState<CameraPage>
         ),
         child: Row(
           children: [
-            // Logo / Title
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black38,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
             const Text(
               'Tim CAP',
               style: TextStyle(
@@ -174,11 +184,10 @@ class _CameraPageState extends ConsumerState<CameraPage>
               ),
             ),
             const Spacer(),
-            // Face count badge
             if (state.hasFaces)
               AnimatedBuilder(
                 animation: _fadeAnim,
-                builder: (_, _) => Opacity(
+                builder: (context, child) => Opacity(
                   opacity: _fadeAnim.value,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -228,7 +237,7 @@ class _CameraPageState extends ConsumerState<CameraPage>
         ),
         child: AnimatedBuilder(
           animation: _fadeAnim,
-          builder: (_, _) {
+          builder: (context, child) {
             if (!state.hasFaces) {
               return const Center(
                 child: Text(
@@ -323,9 +332,7 @@ class _CameraPageState extends ConsumerState<CameraPage>
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// _InfoChip — chip kecil di HUD bawah
-// ──────────────────────────────────────────────────────────────────────────────
+/// Komponen kapsul kecil untuk menampilkan teks informasi singkat di layar.
 class _InfoChip extends StatelessWidget {
   const _InfoChip({
     required this.icon,

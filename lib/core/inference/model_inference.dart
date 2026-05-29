@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:camera/camera.dart';
 import 'package:face_detection_tflite/face_detection_tflite.dart';
 import 'package:flutter/foundation.dart';
@@ -7,27 +5,13 @@ import 'package:flutter/material.dart' show Rect;
 
 import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// FaceDetectorService  (Single Responsibility — hanya inference)
-//
-// Wraps face_detection_tflite + landmark heuristics untuk ekspresi & usia.
-// Semua opencv/isolate work dihandle oleh library — UI thread tidak pernah
-// diblokir.
-//
-// CATATAN: Klasifikasi ekspresi & usia adalah HEURISTICS berbasis mesh
-// 468 titik MediaPipe. Akurasi cukup untuk demo PCD. Untuk produksi,
-// replace _classifyExpression() & _estimateAge() dengan model TFLite custom.
-// ──────────────────────────────────────────────────────────────────────────────
 class FaceDetectorService {
   FaceDetector? _detector;
   bool _isInitialized = false;
 
   bool get isInitialized => _isInitialized;
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-  /// Inisialisasi BlazeFace model untuk front camera selfie.
-  /// Menggunakan FaceDetectionModel.frontCamera (optimized untuk close-up).
   Future<void> initialize() async {
     try {
       _detector = await FaceDetector.create(
@@ -44,20 +28,17 @@ class FaceDetectorService {
   }
 
   Future<void> dispose() async {
-    await _detector?.dispose();
-    _detector = null;
     _isInitialized = false;
+    try {
+      await _detector?.dispose();
+    } catch (e) {
+      debugPrint('[FaceDetectorService] Dispose error: $e');
+    }
+    _detector = null;
     debugPrint('[FaceDetectorService] Disposed');
   }
 
-  // ── Core Detection ─────────────────────────────────────────────────────────
 
-  /// Deteksi wajah dari CameraImage (YUV420 Android).
-  /// Semua cvtColor/rotate/downscale berjalan di isolate — tidak block UI.
-  ///
-  /// [image]    : frame dari camera.startImageStream
-  /// [rotation] : rotasi sensor kamera (lihat _getRotation di CameraService)
-  /// Returns    : List of FaceDetectionResult dalam koordinat post-rotation pixels
   Future<List<FaceDetectionResult>> detectFromCameraImage(
     CameraImage image, {
     CameraFrameRotation rotation = CameraFrameRotation.cw90,
@@ -68,8 +49,9 @@ class FaceDetectorService {
       final faces = await _detector!.detectFacesFromCameraImage(
         image,
         rotation: rotation,
-        mode: FaceDetectionMode.standard, // bounding box + 6 landmarks + mesh
-        maxDim: 640, // downscale in-isolate → hemat bandwidth IPC
+        mode: FaceDetectionMode.standard,
+        maxDim: 480,
+
       );
 
       return faces
@@ -82,7 +64,6 @@ class FaceDetectorService {
     }
   }
 
-  // ── Conversi & Heuristics ──────────────────────────────────────────────────
 
   FaceDetectionResult? _convertFace(Face face) {
     try {
@@ -98,7 +79,7 @@ class FaceDetectorService {
       FaceExpression expression = FaceExpression.neutral;
       double confidence = 0.70;
 
-      if (mesh != null) {
+      if (mesh != null && mesh.length >= 468) {
         final result = _classifyExpression(mesh);
         expression = result.expression;
         confidence = result.confidence;
@@ -118,101 +99,193 @@ class FaceDetectorService {
     }
   }
 
-  // ── Expression Heuristics (Landmark-Based) ─────────────────────────────────
-  //
-  // MediaPipe Face Mesh 468-point canonical indices:
-  //   13  = inner upper lip center
-  //   14  = inner lower lip center
-  //   61  = left mouth corner
-  //  291  = right mouth corner
-  //  145  = left eye lower lid center
-  //  159  = left eye upper lid center
-  //  374  = right eye lower lid center
-  //  386  = right eye upper lid center
-  //  105  = left eyebrow arch
-  //   33  = left eye inner corner
-  //
-  // Koordinat dalam image pixel space (y meningkat ke bawah).
+
+  _Pt _safePoint(FaceMesh mesh, int index) {
+    if (index < mesh.length) {
+      final p = mesh[index];
+      return _Pt(p.x.toDouble(), p.y.toDouble());
+    }
+    return const _Pt(0, 0);
+  }
+
 
   ({FaceExpression expression, double confidence}) _classifyExpression(
     FaceMesh mesh,
   ) {
     try {
-      final upperLip = mesh[13];
-      final lowerLip = mesh[14];
-      final leftCorner = mesh[61];
-      final rightCorner = mesh[291];
-      final leftEyeTop = mesh[159];
-      final leftEyeBot = mesh[145];
-      final rightEyeTop = mesh[386];
-      final rightEyeBot = mesh[374];
-      final leftBrow = mesh[105];
-      final leftEyeInner = mesh[33];
+      final upperLip = _safePoint(mesh, 13);
+      final lowerLip = _safePoint(mesh, 14);
+      final leftCorner = _safePoint(mesh, 61);
+      final rightCorner = _safePoint(mesh, 291);
+      final leftEyeTop = _safePoint(mesh, 159);
+      final leftEyeBot = _safePoint(mesh, 145);
+      final rightEyeTop = _safePoint(mesh, 386);
+      final rightEyeBot = _safePoint(mesh, 374);
+      final leftBrowOuter = _safePoint(mesh, 105);
+      final leftBrowInner = _safePoint(mesh, 70);
+      final rightBrowInner = _safePoint(mesh, 336);
+      final leftEyeInner = _safePoint(mesh, 33);
+      final rightEyeInner = _safePoint(mesh, 263);
+      final noseTip = _safePoint(mesh, 4);
+      final lowerLipBottom = _safePoint(mesh, 17);
 
-      // Mouth width sebagai normalisasi
       final mouthW = (rightCorner.x - leftCorner.x).abs();
-      if (mouthW < 1) return (expression: FaceExpression.neutral, confidence: 0.65);
+      if (mouthW < 1) {
+        return (expression: FaceExpression.neutral, confidence: 0.65);
+      }
 
-      // MAR — Mouth Aspect Ratio (keterbukaan mulut)
+
       final mouthH = (lowerLip.y - upperLip.y).abs();
       final mar = mouthH / mouthW;
 
-      // Smile score: lip corners naik → y corner < y lip center
       final lipCenterY = (upperLip.y + lowerLip.y) / 2;
       final cornerAvgY = (leftCorner.y + rightCorner.y) / 2;
       final smileRatio = (lipCenterY - cornerAvgY) / mouthW;
 
-      // EAR — Eye Aspect Ratio (keterbukaan mata)
       final leftEAR = (leftEyeBot.y - leftEyeTop.y).abs() / mouthW;
       final rightEAR = (rightEyeBot.y - rightEyeTop.y).abs() / mouthW;
       final avgEAR = (leftEAR + rightEAR) / 2;
 
-      // Brow compression: brow dekat mata → marah
-      final browEyeGap = (leftEyeInner.y - leftBrow.y).abs();
+      final browEyeGap = (leftEyeInner.y - leftBrowOuter.y).abs();
       final browRatio = browEyeGap / mouthW;
 
-      // ── Classifier ─────────────────────────────────────────────────────────
-      // Surprised: mulut terbuka (MAR > 0.28) DAN mata melebar (EAR > 0.22)
+      final innerBrowAvgY = (leftBrowInner.y + rightBrowInner.y) / 2;
+      final eyeInnerAvgY = (leftEyeInner.y + rightEyeInner.y) / 2;
+      final innerBrowRaise = (eyeInnerAvgY - innerBrowAvgY).abs() / mouthW;
+
+      final noseToLip = (lowerLipBottom.y - noseTip.y).abs() / mouthW;
+
+      final leftCornerRelY = (leftCorner.y - lipCenterY).abs();
+      final rightCornerRelY = (rightCorner.y - lipCenterY).abs();
+      final mouthAsymmetry =
+          (leftCornerRelY - rightCornerRelY).abs() / mouthW;
+
+      final outerMouthH = (lowerLipBottom.y - upperLip.y).abs();
+      final outerMAR = outerMouthH / mouthW;
+
+
+      final scores = <FaceExpression, double>{};
+
       if (mar > 0.28 && avgEAR > 0.22) {
-        final conf = (math.min(mar / 0.4, 1.0) * 0.15 + 0.75).clamp(0.70, 0.95);
-        return (expression: FaceExpression.surprised, confidence: conf);
+        scores[FaceExpression.surprised] =
+            (mar / 0.4).clamp(0.0, 1.0) * 0.5 +
+                (avgEAR / 0.3).clamp(0.0, 1.0) * 0.5;
       }
 
-      // Happy: sudut mulut terangkat ke atas (smileRatio > threshold)
       if (smileRatio > 0.04) {
-        final conf = (math.min(smileRatio / 0.12, 1.0) * 0.20 + 0.72).clamp(0.70, 0.95);
-        return (expression: FaceExpression.happy, confidence: conf);
+        scores[FaceExpression.happy] =
+            (smileRatio / 0.12).clamp(0.0, 1.0);
       }
 
-      // Angry: alis ditekan ke bawah → gap alis-mata kecil
       if (browRatio < 0.24) {
-        final conf = (math.min((0.24 - browRatio) / 0.12, 1.0) * 0.20 + 0.70).clamp(0.68, 0.92);
-        return (expression: FaceExpression.angry, confidence: conf);
+        scores[FaceExpression.angry] =
+            ((0.24 - browRatio) / 0.12).clamp(0.0, 1.0);
       }
 
-      // Default: Neutral
-      return (expression: FaceExpression.neutral, confidence: 0.72);
+      if (smileRatio < -0.02 && innerBrowRaise > 0.20) {
+        scores[FaceExpression.sad] =
+            ((-smileRatio) / 0.08).clamp(0.0, 1.0) * 0.6 +
+                (innerBrowRaise / 0.30).clamp(0.0, 1.0) * 0.4;
+      } else if (smileRatio < -0.03) {
+        scores[FaceExpression.sad] =
+            ((-smileRatio) / 0.10).clamp(0.0, 1.0) * 0.7;
+      }
+
+      if (avgEAR > 0.20 && mar > 0.12 && mar <= 0.28 && innerBrowRaise > 0.18) {
+        scores[FaceExpression.fearful] =
+            (avgEAR / 0.28).clamp(0.0, 1.0) * 0.4 +
+                (mar / 0.25).clamp(0.0, 1.0) * 0.3 +
+                (innerBrowRaise / 0.28).clamp(0.0, 1.0) * 0.3;
+      }
+
+      if (noseToLip < 0.55 && (mouthAsymmetry > 0.04 || outerMAR > 0.25)) {
+        scores[FaceExpression.disgusted] =
+            ((0.60 - noseToLip) / 0.20).clamp(0.0, 1.0) * 0.5 +
+                (mouthAsymmetry / 0.08).clamp(0.0, 1.0) * 0.3 +
+                (outerMAR > 0.25 ? 0.2 : 0.0);
+      }
+
+
+      if (scores.isEmpty) {
+        return (expression: FaceExpression.neutral, confidence: 0.72);
+      }
+
+      final sorted = scores.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      final winner = sorted.first;
+      final runnerUpScore =
+          sorted.length > 1 ? sorted[1].value : 0.0;
+
+      final margin = winner.value - runnerUpScore;
+      final rawConfidence = 0.60 + margin * 0.35;
+      final normalizedConfidence = rawConfidence.clamp(0.55, 0.95);
+
+      return (
+        expression: winner.key,
+        confidence: normalizedConfidence,
+      );
     } catch (_) {
       return (expression: FaceExpression.neutral, confidence: 0.65);
     }
   }
 
-  // ── Age Estimation (Mock / Heuristics) ────────────────────────────────────
-  //
-  // PENTING: Ini adalah MOCK untuk keperluan demo PCD.
-  // Estimasi kasar berdasarkan rasio dimensi wajah.
-  // Untuk produksi: ganti dengan model TFLite age estimation dedikasi
-  // (contoh: MobileNetV2 yang dilatih di dataset IMDB-WIKI atau UTKFace).
   int _estimateAge(Face face) {
     final bb = face.boundingBox;
-    final faceW = bb.width;
-    final faceH = bb.height;
-    final aspectRatio = faceH > 0 ? faceW / faceH : 1.0;
-    // Mapping naif: aspect ratio lebih lebar → perkiraan lebih muda
-    // Range: 15–55 tahun
-    final baseAge = (aspectRatio * 30 + 10).clamp(15.0, 55.0);
-    // Tambah variasi kecil berdasarkan ukuran kotak untuk konsistensi
-    final seed = (faceW * 0.1).toInt() % 7;
-    return (baseAge + seed - 3).toInt().clamp(15, 55);
+    final faceW = bb.width.toDouble();
+    final faceH = bb.height.toDouble();
+
+    if (faceW <= 0 || faceH <= 0) return 25;
+
+    final mesh = face.mesh;
+    if (mesh == null || mesh.length < 468) {
+      final aspectRatio = faceW / faceH;
+      return (aspectRatio * 25 + 12).clamp(15.0, 50.0).toInt();
+    }
+
+    try {
+      final leftEye = _safePoint(mesh, 33);
+      final rightEye = _safePoint(mesh, 263);
+      final upperLip = _safePoint(mesh, 13);
+      final chin = _safePoint(mesh, 152);
+      final forehead = _safePoint(mesh, 10);
+      final noseTip = _safePoint(mesh, 4);
+
+      final eyeDistance = (rightEye.x - leftEye.x).abs();
+      final eyeToFaceRatio = eyeDistance / faceW;
+
+      final eyeCenterY = (leftEye.y + rightEye.y) / 2;
+      final eyeToMouth = (upperLip.y - eyeCenterY).abs();
+      final eyeToMouthRatio = eyeToMouth / faceH;
+
+      final foreheadHeight = (eyeCenterY - forehead.y).abs();
+      final foreheadRatio = foreheadHeight / faceH;
+
+      final noseLength = (noseTip.y - eyeCenterY).abs();
+      final noseRatio = noseLength / faceH;
+
+      final chinLength = (chin.y - upperLip.y).abs();
+      final chinRatio = chinLength / faceH;
+
+      double ageScore = 0;
+      ageScore += ((0.40 - eyeToFaceRatio) * 120).clamp(0.0, 30.0);
+      ageScore += (eyeToMouthRatio * 50).clamp(5.0, 25.0);
+      ageScore += ((0.40 - foreheadRatio) * 30).clamp(0.0, 15.0);
+      ageScore += (noseRatio * 40).clamp(2.0, 12.0);
+      ageScore += (chinRatio * 20).clamp(1.0, 8.0);
+
+      final estimatedAge = (ageScore * 0.7 + 8).clamp(10.0, 65.0);
+      final seed = (faceW * 0.1).toInt() % 5;
+      return (estimatedAge + seed - 2).toInt().clamp(10, 65);
+    } catch (_) {
+      final aspectRatio = faceW / faceH;
+      return (aspectRatio * 25 + 12).clamp(15.0, 50.0).toInt();
+    }
   }
+}
+
+class _Pt {
+  final double x;
+  final double y;
+  const _Pt(this.x, this.y);
 }

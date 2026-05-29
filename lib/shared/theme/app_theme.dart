@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
 // AppTheme — Tim CAP Dark Camera Theme
 // Palet: Hitam matte background, aksen neon hijau, tipografi Inter/system
-// ──────────────────────────────────────────────────────────────────────────────
 class AppTheme {
   AppTheme._();
 
-  // Warna primer
-  static const Color primary = Color(0xFF00E676);       // neon green
-  static const Color background = Color(0xFF0A0A0A);    // near-black
-  static const Color surface = Color(0xFF141414);       // card surface
+  static const Color primary = Color(0xFF00E676);
+
+  static const Color background = Color(0xFF0A0A0A);
+
+  static const Color surface = Color(0xFF141414);
+
   static const Color surfaceVariant = Color(0xFF1E1E1E);
   static const Color onBackground = Color(0xFFEEEEEE);
   static const Color onSurface = Color(0xFFCCCCCC);
-  static const Color accent = Color(0xFF00BCD4);        // cyan accent
+  static const Color accent = Color(0xFF00BCD4);
+
+
+  static const Color primaryColor = primary;
 
   static ThemeData get darkTheme {
     return ThemeData(
@@ -76,6 +79,5 @@ class AppTheme {
     );
   }
 
-  // Tetap ada lightTheme agar tidak break import lama
   static ThemeData get lightTheme => darkTheme;
 }

@@ -5,10 +5,8 @@ import 'package:pcd_tubes/features/challenge/challenge_screen.dart';
 import 'package:pcd_tubes/features/detect/presentation/pages/camera_page.dart';
 import 'package:pcd_tubes/shared/theme/app_theme.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
 // DetectScreen — landing page fitur deteksi
 // Navigasi ke CameraPage (live detect) dan ChallengeScreen
-// ──────────────────────────────────────────────────────────────────────────────
 class DetectScreen extends ConsumerWidget {
   const DetectScreen({super.key});
 
@@ -23,7 +21,6 @@ class DetectScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 24),
-              // Title
               const Text(
                 'Tim CAP',
                 style: TextStyle(
@@ -44,7 +41,6 @@ class DetectScreen extends ConsumerWidget {
               ),
               const Spacer(),
 
-              // Ilustrasi
               Center(
                 child: Container(
                   width: 180,
@@ -65,7 +61,6 @@ class DetectScreen extends ConsumerWidget {
 
               const Spacer(),
 
-              // Tombol Deteksi
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -82,7 +77,6 @@ class DetectScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
 
-              // Tombol Challenge
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(

@@ -2,7 +2,6 @@ import 'package:camera/camera.dart';
 import 'package:face_detection_tflite/face_detection_tflite.dart';
 import 'package:flutter/widgets.dart';
 
-// ──────────────────────────────────────────────────────────────────────────────
 // CameraService  (Single Responsibility — hanya lifecycle kamera)
 //
 // Mengelola: init, startStream, stopStream, dispose.
@@ -10,7 +9,6 @@ import 'package:flutter/widgets.dart';
 // saat app masuk background — mencegah memory leak.
 //
 // Target: Android, ImageFormatGroup.yuv420
-// ──────────────────────────────────────────────────────────────────────────────
 class CameraService with WidgetsBindingObserver {
   CameraController? _controller;
   bool _isStreaming = false;
@@ -20,19 +18,24 @@ class CameraService with WidgetsBindingObserver {
   bool get isStreaming => _isStreaming;
   bool get isInitialized => _controller?.value.isInitialized ?? false;
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-  /// Inisialisasi kamera.
-  /// [cameraDescription] biasanya cameras.first (front) atau cameras[1] (back).
+  /// Inisialisasi kamera (stop stream lama jika ada).
   Future<void> initialize(CameraDescription cameraDescription) async {
+    // Bersihkan controller lama sebelum buat yang baru.
+    if (_controller != null) {
+      await stopStream();
+      await _controller!.dispose();
+      _controller = null;
+    }
+
     _isDisposed = false;
     WidgetsBinding.instance.addObserver(this);
 
     _controller = CameraController(
       cameraDescription,
-      ResolutionPreset.medium, // 640×480 — balance performa & akurasi
+      ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420, // Android YUV420
+      imageFormatGroup: ImageFormatGroup.yuv420,
     );
 
     await _controller!.initialize();
@@ -73,7 +76,6 @@ class CameraService with WidgetsBindingObserver {
     debugPrint('[CameraService] Disposed');
   }
 
-  // ── AppLifecycleObserver — mencegah resource leak saat background ──────────
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -93,7 +95,6 @@ class CameraService with WidgetsBindingObserver {
     }
   }
 
-  // ── Static Helpers ─────────────────────────────────────────────────────────
 
   /// Rotasi frame berdasarkan sensor orientation kamera (Android portrait).
   /// front camera biasanya 270°, back camera biasanya 90°.
@@ -106,7 +107,6 @@ class CameraService with WidgetsBindingObserver {
       case 270:
         return CameraFrameRotation.cw270;
       default:
-        // Default ke cw90 (paling umum untuk Android back camera portrait)
         return CameraFrameRotation.cw90;
     }
   }

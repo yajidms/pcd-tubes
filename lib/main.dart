@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:pcd_tubes/core/services/mongodb_service.dart';
+import 'package:pcd_tubes/features/challenge/challenge_screen.dart';
+import 'package:pcd_tubes/features/dashboard/dashboard_screen.dart';
 import 'package:pcd_tubes/features/detect/detect_screen.dart';
 import 'package:pcd_tubes/features/journal/journal_screen.dart';
 import 'package:pcd_tubes/shared/theme/app_theme.dart';
@@ -13,7 +16,9 @@ void main() async {
   } catch (e) {
     debugPrint("File .env tidak ditemukan, menggunakan environment default");
   }
-  // Wrap dengan ProviderScope — wajib untuk flutter_riverpod
+
+  MongoDbService.connect();
+
   runApp(const ProviderScope(child: PcdTubesApp()));
 }
 
@@ -26,7 +31,7 @@ class PcdTubesApp extends StatelessWidget {
       title: 'Tim CAP — Face Detect',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const DetectScreen(),
+      home: const MainShell(),
     );
   }
 }
@@ -77,8 +82,8 @@ class _ElegantNavBar extends StatelessWidget {
     return Container(
       height: 72,
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFEEEEEE), width: 1)),
+        color: AppTheme.surface,
+        border: Border(top: BorderSide(color: Color(0xFF1E1E1E), width: 1)),
       ),
       child: Row(
         children: _items.asMap().entries.map((e) {
@@ -99,14 +104,14 @@ class _ElegantNavBar extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                       decoration: BoxDecoration(
                         color: active
-                            ? AppTheme.primaryColor.withOpacity(0.1)
+                            ? AppTheme.primary.withOpacity(0.1)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
                         e.value.$1,
                         size: 22,
-                        color: active ? AppTheme.primaryColor : Colors.grey.shade400,
+                        color: active ? AppTheme.primary : Colors.grey.shade600,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -115,7 +120,7 @@ class _ElegantNavBar extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                        color: active ? AppTheme.primaryColor : Colors.grey.shade400,
+                        color: active ? AppTheme.primary : Colors.grey.shade600,
                       ),
                       child: Text(e.value.$2),
                     ),
