@@ -203,23 +203,17 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
     try {
       // ── Hitung imageSize post-rotation dengan benar ──────────────────────
       // CameraImage.width/height = dimensi SENSOR (sebelum rotasi).
-      // Untuk rotasi 90° & 270°: lebar & tinggi dibalik.
-      // Untuk rotasi 180° (atau default 0°): tetap seperti aslinya.
-      final Size imgSize;
-      if (rotation == CameraFrameRotation.cw90 ||
-          rotation == CameraFrameRotation.cw270) {
-        // Portrait Android: sensor landscape → swap agar portrait
-        imgSize = Size(
-          image.height.toDouble(), // lebar setelah rotate = tinggi sensor
-          image.width.toDouble(),  // tinggi setelah rotate = lebar sensor
-        );
-      } else {
-        // cw180 atau default: tidak perlu swap
-        imgSize = Size(
-          image.width.toDouble(),
-          image.height.toDouble(),
-        );
-      }
+      // Untuk rotasi 90° & 270°: lebar & tinggi dibalik → portrait.
+      // Untuk 0° / 180°: dimensi tetap, tapi kita tetap normalisasi ke portrait.
+      // PENTING: imgSize harus selalu portrait (height > width) agar sinkron
+      // dengan _buildCameraPreview yang selalu menghasilkan SizedBox portrait.
+      final double rawW = image.width.toDouble();
+      final double rawH = image.height.toDouble();
+      // Pastikan selalu portrait: width = sisi pendek, height = sisi panjang
+      final imgSize = Size(
+        rawW < rawH ? rawW : rawH,   // width = sisi pendek (portrait width)
+        rawW < rawH ? rawH : rawW,   // height = sisi panjang (portrait height)
+      );
 
       final results = await _detectorService.detectFromCameraImage(
         image,

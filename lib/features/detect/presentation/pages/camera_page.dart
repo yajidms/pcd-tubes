@@ -143,19 +143,35 @@ class _CameraPageState extends ConsumerState<CameraPage>
     );
   }
 
-  // ── Camera Preview ─────────────────────────────────────────────────────────
+  // ── Camera Preview ────────────────────────────────────────────────────────
 
   Widget _buildCameraPreview(CameraController controller) {
+    final ps = controller.value.previewSize;
+    // Deteksi orientasi previewSize secara dinamis:
+    // - Beberapa device Android (termasuk Realme A-series) melaporkan previewSize
+    //   dalam landscape (width > height = dimensi sensor mentah) → perlu swap
+    // - Device lain sudah melaporkan portrait (width < height) → pakai as-is
+    // Kita selalu ingin SizedBox dalam orientasi PORTRAIT (height > width).
+    final double previewW;
+    final double previewH;
+    if (ps != null && ps.width > ps.height) {
+      // Landscape sensor → swap untuk portrait display
+      previewW = ps.height;
+      previewH = ps.width;
+    } else {
+      // Sudah portrait atau null
+      previewW = ps?.width ?? 1;
+      previewH = ps?.height ?? 1;
+    }
+
     return ClipRect(
       child: OverflowBox(
         alignment: Alignment.center,
         child: FittedBox(
           fit: BoxFit.cover,
           child: SizedBox(
-            // previewSize dari controller: lebar = tinggi sensor, tinggi = lebar sensor
-            // (landscape sensor → portrait display)
-            width:  controller.value.previewSize?.height ?? 1,
-            height: controller.value.previewSize?.width  ?? 1,
+            width:  previewW,
+            height: previewH,
             child: CameraPreview(controller),
           ),
         ),

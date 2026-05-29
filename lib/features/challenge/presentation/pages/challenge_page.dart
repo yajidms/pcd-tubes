@@ -277,11 +277,23 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
             alignment: Alignment.center,
             child: FittedBox(
               fit: BoxFit.cover,
-              child: SizedBox(
-                width: controller.value.previewSize?.height ?? 1,
-                height: controller.value.previewSize?.width ?? 1,
-                child: CameraPreview(controller),
-              ),
+              child: Builder(builder: (context) {
+                final ps = controller.value.previewSize;
+                final double previewW;
+                final double previewH;
+                if (ps != null && ps.width > ps.height) {
+                  previewW = ps.height;
+                  previewH = ps.width;
+                } else {
+                  previewW = ps?.width ?? 1;
+                  previewH = ps?.height ?? 1;
+                }
+                return SizedBox(
+                  width: previewW,
+                  height: previewH,
+                  child: CameraPreview(controller),
+                );
+              }),
             ),
           ),
         ),
@@ -320,8 +332,9 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Progress ronde
           Row(
@@ -344,33 +357,34 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
               );
             }),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
 
           // Instruksi
           Text(
             'Ronde ${_currentRound + 1} dari $_totalRounds',
-            style: const TextStyle(color: Colors.white38, fontSize: 12),
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           const Text(
             'Tiru ekspresi ini!',
             style: TextStyle(
               color: Colors.white,
-              fontSize: 16,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
           // Target ekspresi — emoji besar + nama
           ScaleTransition(
             scale: _scaleAnim,
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 AnimatedBuilder(
                   animation: _pulseAnim,
                   builder: (_, child) => Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
@@ -384,16 +398,16 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
                     ),
                     child: Text(
                       _targetExpression.emoji,
-                      style: const TextStyle(fontSize: 52),
+                      style: const TextStyle(fontSize: 44),
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   _targetExpression.displayName.toUpperCase(),
                   style: TextStyle(
                     color: _targetExpression.boxColor,
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 2,
                   ),
@@ -402,7 +416,7 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
           // Hold progress bar
           _buildHoldProgressBar(state),
