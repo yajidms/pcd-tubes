@@ -176,7 +176,7 @@ class FaceDetectorService {
 
   // ── Age Smoothing ─────────────────────────────────────────────────────────
 
-  /// Smoothing usia antar frame: rata-rata weighted (bobot baru 40%, lama 60%)
+  /// Smoothing usia antar frame: rata-rata weighted (bobot baru 30%, lama 70%)
   /// untuk mengurangi flickering usia yang berubah-ubah tiap frame.
   int _smoothAge(int rawAge, int faceIndex) {
     if (_ageHistory.length <= faceIndex) {
@@ -184,7 +184,8 @@ class FaceDetectorService {
       return rawAge;
     }
     final prev = _ageHistory[faceIndex];
-    final smoothed = (prev * 0.6 + rawAge * 0.4).round();
+    // Weighted average — kurangi bobot frame baru agar lebih stabil
+    final smoothed = (prev * 0.7 + rawAge * 0.3).round();
     _ageHistory[faceIndex] = smoothed;
     return smoothed;
   }
@@ -297,33 +298,43 @@ class FaceDetectorService {
     }
   }
 
-  // ── Age Estimation (Heuristics) ───────────────────────────────────────────
+  // ── Age Estimation (Heuristics v2) ───────────────────────────────────────
   //
-  // PENTING: Ini HEURISTICS untuk keperluan demo PCD.
-  // Estimasi kasar berdasarkan rasio dimensi wajah + ukuran relatif.
-  // Untuk produksi: ganti dengan model TFLite age estimation dedikasi
-  // (contoh: MobileNetV2 fine-tuned pada UTKFace dataset).
+  // PENTING: Ini HEURISTICS yang diperbaiki untuk keperluan demo PCD.
+  // Menggunakan kombinasi face-area-ratio + aspect ratio dengan baseline
+  // yang dikalibrasi ke distribusi usia realistis (kebanyakan 15–35 tahun).
   //
-  // Range output: 1–70 — mencakup semua kategori:
-  //   Baby(1–2), Toddler(3–7), Pre-Teen(8–14), Teenager(15–20),
-  //   Young Adult(21–32), Middle Aged(33–47), Senior(48–59), Elderly(60+)
+  // Range output: 8–65 — mencakup Pre-Teen hingga Senior.
   int _estimateAge(Face face) {
     final bb = face.boundingBox;
-    final faceW = bb.width;
-    final faceH = bb.height;
-    if (faceW <= 0 || faceH <= 0) return 25;
+    final faceW = bb.width.toDouble();
+    final faceH = bb.height.toDouble();
+    if (faceW <= 0 || faceH <= 0) return 22;
 
-    final aspectRatio = faceW / faceH;
+    // ── 1. Aspect Ratio Component ─────────────────────────────────────────
+    // Wajah anak (lebih bulat, ratio < 0.75) → usia lebih muda
+    // Wajah dewasa muda (ratio 0.75–0.88) → 18–30
+    // Wajah dewasa tua / lansia (ratio > 0.88) → 35+
+    final ar = (faceW / faceH).clamp(0.50, 1.10);
+    // Mapping linear: ar=0.60 → ageAR≈10, ar=0.80 → ageAR≈23, ar=1.0 → ageAR≈38
+    final ageFromAR = ((ar - 0.55) / (1.05 - 0.55)) * 35 + 8;
 
-    // Mapping: aspect ratio → estimasi usia
-    // Wajah bayi/anak: lebih bulat (ratio ~0.7–0.85)
-    // Wajah dewasa:    oval       (ratio ~0.85–1.0)
-    // Wajah lansia:    memanjang  (ratio ~1.0+)
-    final baseAge = (aspectRatio * 42 + 8).clamp(1.0, 65.0);
+    // ── 2. Bbox Area Component ────────────────────────────────────────────
+    // Luas bbox dalam piksel (sebelum inflate). Wajah yang lebih kecil
+    // cenderung dari kamera yang lebih jauh (pengguna sedang menjauh).
+    // Tidak ada korelasi kuat dengan usia, jadi bobotnya kecil.
+    // Digunakan HANYA sebagai stabilizer deterministik (tidak random).
+    final area = faceW * faceH;
+    // Normalisasi ke -2..+2 range
+    final areaOffset = ((area / 10000.0).clamp(0.5, 4.0) - 2.0).clamp(-2.0, 2.0);
 
-    // Stabilizer: gunakan ukuran bbox sebagai seed untuk konsistensi antar frame
-    // (bukan random — deterministic berdasarkan ukuran wajah)
-    final sizeSeed = ((faceW + faceH) * 0.05).toInt() % 5;
-    return (baseAge + sizeSeed - 2).toInt().clamp(1, 70);
+    // ── 3. Combined Age ───────────────────────────────────────────────────
+    // Baseline: user PCD kebanyakan mahasiswa (18–25 tahun)
+    // Bobot AR sangat dominan (80%), area sebagai fine-tuner (20%)
+    final rawAge = (ageFromAR * 0.80 + (22 + areaOffset) * 0.20)
+        .clamp(8.0, 65.0)
+        .roundToDouble();
+
+    return rawAge.toInt();
   }
 }
