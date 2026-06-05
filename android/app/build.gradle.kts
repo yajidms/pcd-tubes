@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.pcd_tubes"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "28.2.13676358"
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
