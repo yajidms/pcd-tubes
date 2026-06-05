@@ -46,3 +46,9 @@ app.*.map.json
 
 # Env files
 .env
+documents
+ios
+linux
+macos 
+web
+windows
