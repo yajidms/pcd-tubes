@@ -117,9 +117,23 @@ class CameraService with WidgetsBindingObserver {
   // ── Static Helpers ─────────────────────────────────────────────────────────
 
   /// Rotasi frame berdasarkan sensor orientation kamera (Android portrait).
-  /// front camera biasanya 270°, back camera biasanya 90°.
+  ///
+  /// Formula yang benar:
+  ///   • Back camera : correction = sensorOrientation (map langsung)
+  ///   • Front camera: correction = (360 - sensorOrientation) % 360
+  ///
+  /// Contoh: front camera sensorOrientation=270°
+  ///   → correction = (360-270)%360 = 90° → cw90  ← BENAR
+  ///   (Bukan cw270! cw270 menghasilkan koordinat bbox yang tidak sinkron
+  ///    dengan CameraPreview yang menampilkan frame dengan rotasi 90° CW)
   static CameraFrameRotation getRotation(CameraDescription camera) {
-    switch (camera.sensorOrientation) {
+    final bool isFront = isFrontCamera(camera);
+    // Hitung derajat rotasi koreksi yang dibutuhkan agar frame tegak (portrait)
+    final int degrees = isFront
+        ? (360 - camera.sensorOrientation) % 360
+        : camera.sensorOrientation % 360;
+
+    switch (degrees) {
       case 90:
         return CameraFrameRotation.cw90;
       case 180:
@@ -127,7 +141,7 @@ class CameraService with WidgetsBindingObserver {
       case 270:
         return CameraFrameRotation.cw270;
       default:
-        // 0° atau tidak diketahui → default cw90 (paling umum Android portrait)
+        // 0° atau tidak diketahui → cw90 (CameraFrameRotation tidak punya nilai 0°)
         return CameraFrameRotation.cw90;
     }
   }
