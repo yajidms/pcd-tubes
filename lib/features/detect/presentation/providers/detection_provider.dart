@@ -98,6 +98,54 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   double _sessionAgeSum = 0;
   int _sessionAgeCount = 0;
 
+  void _startSession() {
+    _sessionStartTime = DateTime.now();
+    _sessionExpressionCounts.clear();
+    _sessionTotalFaces = 0;
+    _sessionAgeSum = 0;
+    _sessionAgeCount = 0;
+  }
+
+  void _endSession() {
+    if (_sessionStartTime == null) return;
+    
+    final endTime = DateTime.now();
+    final duration = endTime.difference(_sessionStartTime!).inSeconds;
+    
+    // Simpan ke DB hanya jika durasi > 2 detik dan ada wajah terdeteksi
+    if (duration > 2 && _sessionTotalFaces > 0) {
+      String dominant = 'neutral';
+      int maxCount = 0;
+      for (final entry in _sessionExpressionCounts.entries) {
+        if (entry.value > maxCount) {
+          maxCount = entry.value;
+          dominant = entry.key;
+        }
+      }
+      
+      final session = DetectionSession(
+        startTime: _sessionStartTime!,
+        endTime: endTime,
+        durationSeconds: duration,
+        expressionDistribution: Map.from(_sessionExpressionCounts),
+        averageAge: _sessionAgeCount > 0 ? _sessionAgeSum / _sessionAgeCount : 0.0,
+        totalFacesDetected: _sessionTotalFaces,
+        dominantExpression: dominant,
+      );
+      
+      MongoDbService.logDetectionSession(session);
+    }
+    
+    _sessionStartTime = null;
+  }
+
+  Future<void> stopDetection() async {
+    if (_cameraService.isStreaming) {
+      await _cameraService.stopStream();
+      _endSession();
+    }
+  }
+
   CameraController? get cameraController => _cameraService.controller;
 
   // ── Inisialisasi ────────────────────────────────────────────────────────────
