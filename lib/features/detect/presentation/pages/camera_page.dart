@@ -68,6 +68,8 @@ class _CameraPageState extends ConsumerState<CameraPage>
     WidgetsBinding.instance.removeObserver(this);
     _fadeController.dispose();
     _scanController.dispose();
+    // Stop stream & save session saat user keluar dari CameraPage
+    ref.read(detectionProvider.notifier).stopDetection();
     super.dispose();
   }
 
@@ -75,6 +77,10 @@ class _CameraPageState extends ConsumerState<CameraPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       ref.read(detectionProvider.notifier).resumeStream();
+    } else if (state == AppLifecycleState.paused ||
+               state == AppLifecycleState.inactive) {
+      // Simpan sesi saat app masuk background
+      ref.read(detectionProvider.notifier).stopDetection();
     }
   }
 
@@ -121,18 +127,19 @@ class _CameraPageState extends ConsumerState<CameraPage>
         // 2. Scan Line Animation (saat tidak ada wajah)
         if (!state.hasFaces) _buildScanLine(),
 
-        // 3. Face Overlay
-        AnimatedBuilder(
-          animation: _fadeAnim,
-          builder: (_, _) => CustomPaint(
-            painter: FaceOverlayPainter(
-              faces:        state.faces,
-              imageSize:    state.imageSize,
-              isFrontCamera: state.isFrontCamera,
-              opacity:      _fadeAnim.value,
+        // 3. Face Overlay — hanya render jika imageSize sudah valid
+        if (state.imageSize != Size.zero)
+          AnimatedBuilder(
+            animation: _fadeAnim,
+            builder: (_, _) => CustomPaint(
+              painter: FaceOverlayPainter(
+                faces:        state.faces,
+                imageSize:    state.imageSize,
+                isFrontCamera: state.isFrontCamera,
+                opacity:      _fadeAnim.value,
+              ),
             ),
           ),
-        ),
 
         // 4. Top HUD (back + title + switch cam + face count)
         _buildTopHUD(state),

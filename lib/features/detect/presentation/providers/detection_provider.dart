@@ -5,7 +5,9 @@ import 'package:flutter/material.dart' show Size;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pcd_tubes/core/inference/model_inference.dart';
+import 'package:pcd_tubes/core/models/detection_session.dart';
 import 'package:pcd_tubes/core/services/camera_service.dart';
+import 'package:pcd_tubes/core/services/mongodb_service.dart';
 import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -89,6 +91,13 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   CameraFrameRotation _currentRotation = CameraFrameRotation.cw90;
   List<CameraDescription> _allCameras = [];
 
+  // ── Session Tracking ────────────────────────────────────────────────────────
+  DateTime? _sessionStartTime;
+  final Map<String, int> _sessionExpressionCounts = {};
+  int _sessionTotalFaces = 0;
+  double _sessionAgeSum = 0;
+  int _sessionAgeCount = 0;
+
   CameraController? get cameraController => _cameraService.controller;
 
   // ── Inisialisasi ────────────────────────────────────────────────────────────
@@ -96,6 +105,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   Future<void> initCamera() async {
     if (state.isInitializing) return;
 
+    if (!mounted) return;
     state = state.copyWith(isInitializing: true, clearError: true);
 
     try {
@@ -115,22 +125,42 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
         _detectorService.initialize(),
       ]);
 
+      if (!mounted) return;
+
       // 3. Ambil previewSize dari controller
       final ctrl = _cameraService.controller!;
       final ps = ctrl.value.previewSize ?? const Size(1280, 720);
+
+      // Hitung imageSize awal dari previewSize agar tidak Size.zero
+      // Pastikan selalu portrait (height > width)
+      final initImageSize = Size(
+        ps.width < ps.height ? ps.width : ps.height,
+        ps.width < ps.height ? ps.height : ps.width,
+      );
 
       state = state.copyWith(
         isInitializing:   false,
         isFrontCamera:    isFront,
         previewSize:      ps,
+        imageSize:        initImageSize,
         availableCameras: _allCameras,
         clearError:       true,
       );
 
-      // 4. Mulai streaming
+      // 4. Delay singkat agar kamera Android stabil sebelum stream
+      // Beberapa device (Realme, Xiaomi, Samsung A-series) butuh waktu
+      // antara init dan startImageStream agar preview texture siap.
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+
+      // 5. Mulai session tracking
+      _startSession();
+
+      // 6. Mulai streaming
       await _startStream();
     } catch (e) {
       debugPrint('[DetectionNotifier] initCamera error: $e');
+      if (!mounted) return;
       state = state.copyWith(
         isInitializing: false,
         errorMessage:   'Gagal membuka kamera: $e',
@@ -151,6 +181,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
     if (nextCamera.name == _currentCamera!.name) return;
 
+    if (!mounted) return;
     state = state.copyWith(isInitializing: true, faces: [], clearError: true);
 
     try {
@@ -165,6 +196,8 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
         _processFrame(image, _currentRotation);
       });
 
+      if (!mounted) return;
+
       final ps = _cameraService.controller?.value.previewSize ?? state.previewSize;
 
       state = state.copyWith(
@@ -175,6 +208,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
       );
     } catch (e) {
       debugPrint('[DetectionNotifier] switchCamera error: $e');
+      if (!mounted) return;
       state = state.copyWith(
         isInitializing: false,
         errorMessage:   'Gagal switch kamera: $e',
@@ -199,6 +233,9 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   }
 
   void _processFrame(CameraImage image, CameraFrameRotation rotation) async {
+    if (!mounted) return;
+    if (!_detectorService.isInitialized) return;
+
     _isProcessingFrame = true;
     try {
       // ── PENTING: imageSize untuk overlay diambil dari library ──────────
@@ -219,12 +256,24 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
       );
 
       if (mounted) {
+        // Track session stats
+        for (final face in results) {
+          final exprName = face.expression.name;
+          _sessionExpressionCounts[exprName] =
+              (_sessionExpressionCounts[exprName] ?? 0) + 1;
+          _sessionTotalFaces++;
+          _sessionAgeSum += face.estimatedAge;
+          _sessionAgeCount++;
+        }
+
         state = state.copyWith(
           faces:      results,
           isDetecting: true,
           imageSize:   actualImageSize,
         );
       }
+    } catch (e) {
+      debugPrint('[DetectionNotifier] _processFrame error: $e');
     } finally {
       _isProcessingFrame = false;
     }
@@ -235,6 +284,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
   Future<void> resumeStream() async {
     if (_cameraService.isInitialized && !_cameraService.isStreaming) {
+      _startSession();
       await _startStream();
     }
   }
@@ -243,6 +293,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
   @override
   void dispose() {
+    _endSession();
     _cameraService.dispose();
     _detectorService.dispose();
     super.dispose();

@@ -17,7 +17,8 @@ void main() async {
     debugPrint("File .env tidak ditemukan, menggunakan environment default");
   }
 
-  MongoDbService.connect();
+  // Await MongoDB connection agar siap sebelum widget query data
+  await MongoDbService.connect();
 
   runApp(const ProviderScope(child: PcdTubesApp()));
 }
@@ -58,7 +59,9 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(index: _current, children: _screens),
       bottomNavigationBar: _ElegantNavBar(
         current: _current,
-        onTap: (i) => setState(() => _current = i),
+        onTap: (i) {
+          setState(() => _current = i);
+        },
       ),
     );
   }
