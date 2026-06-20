@@ -5,7 +5,9 @@ import 'package:flutter/material.dart' show Size;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pcd_tubes/core/inference/model_inference.dart';
+import 'package:pcd_tubes/core/models/detection_session.dart';
 import 'package:pcd_tubes/core/services/camera_service.dart';
+import 'package:pcd_tubes/core/services/mongodb_service.dart';
 import 'package:pcd_tubes/features/detect/domain/entities/face_detection_result.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -89,6 +91,61 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   CameraFrameRotation _currentRotation = CameraFrameRotation.cw90;
   List<CameraDescription> _allCameras = [];
 
+  // ── Session Tracking ────────────────────────────────────────────────────────
+  DateTime? _sessionStartTime;
+  final Map<String, int> _sessionExpressionCounts = {};
+  int _sessionTotalFaces = 0;
+  double _sessionAgeSum = 0;
+  int _sessionAgeCount = 0;
+
+  void _startSession() {
+    _sessionStartTime = DateTime.now();
+    _sessionExpressionCounts.clear();
+    _sessionTotalFaces = 0;
+    _sessionAgeSum = 0;
+    _sessionAgeCount = 0;
+  }
+
+  void _endSession() {
+    if (_sessionStartTime == null) return;
+    
+    final endTime = DateTime.now();
+    final duration = endTime.difference(_sessionStartTime!).inSeconds;
+    
+    // Coba log SEMUA sesi untuk debug (tanpa syarat durasi/wajah)
+    if (true) {
+      String dominant = 'neutral';
+      int maxCount = 0;
+      for (final entry in _sessionExpressionCounts.entries) {
+        if (entry.value > maxCount) {
+          maxCount = entry.value;
+          dominant = entry.key;
+        }
+      }
+      
+      final session = DetectionSession(
+        startTime: _sessionStartTime!,
+        endTime: endTime,
+        durationSeconds: duration,
+        expressionDistribution: Map.from(_sessionExpressionCounts),
+        averageAge: _sessionAgeCount > 0 ? _sessionAgeSum / _sessionAgeCount : 0.0,
+        totalFacesDetected: _sessionTotalFaces,
+        dominantExpression: dominant,
+      );
+      
+      MongoDbService.logDetectionSession(session);
+    }
+    
+    _sessionStartTime = null;
+  }
+
+  Future<void> stopDetection() async {
+    if (_cameraService.isStreaming) {
+      await _cameraService.stopStream();
+      _endSession();
+    }
+  }
+
   CameraController? get cameraController => _cameraService.controller;
 
   // ── Inisialisasi ────────────────────────────────────────────────────────────
@@ -96,6 +153,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   Future<void> initCamera() async {
     if (state.isInitializing) return;
 
+    if (!mounted) return;
     state = state.copyWith(isInitializing: true, clearError: true);
 
     try {
@@ -115,22 +173,42 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
         _detectorService.initialize(),
       ]);
 
+      if (!mounted) return;
+
       // 3. Ambil previewSize dari controller
       final ctrl = _cameraService.controller!;
       final ps = ctrl.value.previewSize ?? const Size(1280, 720);
+
+      // Hitung imageSize awal dari previewSize agar tidak Size.zero
+      // Pastikan selalu portrait (height > width)
+      final initImageSize = Size(
+        ps.width < ps.height ? ps.width : ps.height,
+        ps.width < ps.height ? ps.height : ps.width,
+      );
 
       state = state.copyWith(
         isInitializing:   false,
         isFrontCamera:    isFront,
         previewSize:      ps,
+        imageSize:        initImageSize,
         availableCameras: _allCameras,
         clearError:       true,
       );
 
-      // 4. Mulai streaming
+      // 4. Delay singkat agar kamera Android stabil sebelum stream
+      // Beberapa device (Realme, Xiaomi, Samsung A-series) butuh waktu
+      // antara init dan startImageStream agar preview texture siap.
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+
+      // 5. Mulai session tracking
+      _startSession();
+
+      // 6. Mulai streaming
       await _startStream();
     } catch (e) {
       debugPrint('[DetectionNotifier] initCamera error: $e');
+      if (!mounted) return;
       state = state.copyWith(
         isInitializing: false,
         errorMessage:   'Gagal membuka kamera: $e',
@@ -151,6 +229,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
     if (nextCamera.name == _currentCamera!.name) return;
 
+    if (!mounted) return;
     state = state.copyWith(isInitializing: true, faces: [], clearError: true);
 
     try {
@@ -165,6 +244,8 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
         _processFrame(image, _currentRotation);
       });
 
+      if (!mounted) return;
+
       final ps = _cameraService.controller?.value.previewSize ?? state.previewSize;
 
       state = state.copyWith(
@@ -175,6 +256,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
       );
     } catch (e) {
       debugPrint('[DetectionNotifier] switchCamera error: $e');
+      if (!mounted) return;
       state = state.copyWith(
         isInitializing: false,
         errorMessage:   'Gagal switch kamera: $e',
@@ -199,44 +281,59 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   }
 
   void _processFrame(CameraImage image, CameraFrameRotation rotation) async {
+    if (!mounted) return;
+    if (!_detectorService.isInitialized) return;
+
     _isProcessingFrame = true;
     try {
-      // ── Hitung imageSize post-rotation dengan benar ──────────────────────
-      // CameraImage.width/height = dimensi SENSOR (sebelum rotasi).
-      // Untuk rotasi 90° & 270°: lebar & tinggi dibalik → portrait.
-      // Untuk 0° / 180°: dimensi tetap, tapi kita tetap normalisasi ke portrait.
-      // PENTING: imgSize harus selalu portrait (height > width) agar sinkron
-      // dengan _buildCameraPreview yang selalu menghasilkan SizedBox portrait.
-      final double rawW = image.width.toDouble();
-      final double rawH = image.height.toDouble();
-      // Pastikan selalu portrait: width = sisi pendek, height = sisi panjang
-      final imgSize = Size(
-        rawW < rawH ? rawW : rawH,   // width = sisi pendek (portrait width)
-        rawW < rawH ? rawH : rawW,   // height = sisi panjang (portrait height)
-      );
+      // ── PENTING: imageSize untuk overlay diambil dari library ──────────
+      // Library face_detection_tflite melakukan downscale (maxDim=640) DAN
+      // rotasi secara internal. Koordinat bbox & mesh yang dikembalikan
+      // berada di ruang gambar post-downscale/post-rotate.
+      //
+      // Kita TIDAK boleh menggunakan CameraImage.width/height karena itu
+      // adalah dimensi sensor mentah (sebelum downscale & rotate).
+      // Contoh: CameraImage = 1280x720, setelah downscale+rotate = 360x640.
+      //
+      // face.originalSize (dari library) memberikan dimensi yang BENAR
+      // untuk mapping overlay → screen.
 
-      final results = await _detectorService.detectFromCameraImage(
+      final (results, actualImageSize) = await _detectorService.detectFromCameraImage(
         image,
-        rotation:  rotation,
-        imageSize: imgSize, // untuk clamp inflate bbox
+        rotation: rotation,
       );
 
-      if (mounted) {
+      // Hanya update state jika notifier belum didispose DAN stream masih berjalan
+      if (mounted && _cameraService.isStreaming) {
+        // Track session stats
+        for (final face in results) {
+          final exprName = face.expression.name;
+          _sessionExpressionCounts[exprName] =
+              (_sessionExpressionCounts[exprName] ?? 0) + 1;
+          _sessionTotalFaces++;
+          _sessionAgeSum += face.estimatedAge;
+          _sessionAgeCount++;
+        }
+
         state = state.copyWith(
           faces:      results,
           isDetecting: true,
-          imageSize:   imgSize,
+          imageSize:   actualImageSize,
         );
       }
+    } catch (e) {
+      debugPrint('[DetectionNotifier] _processFrame error: $e');
     } finally {
       _isProcessingFrame = false;
     }
   }
 
+
   // ── Resume setelah app dari background ─────────────────────────────────────
 
   Future<void> resumeStream() async {
     if (_cameraService.isInitialized && !_cameraService.isStreaming) {
+      _startSession();
       await _startStream();
     }
   }
@@ -245,6 +342,7 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
 
   @override
   void dispose() {
+    _endSession();
     _cameraService.dispose();
     _detectorService.dispose();
     super.dispose();

@@ -66,13 +66,15 @@ class FaceDetectorService {
   ///
   /// [image]    : frame dari camera.startImageStream
   /// [rotation] : rotasi sensor kamera (lihat CameraService.getRotation)
-  /// [imageSize]: dimensi frame post-rotation (digunakan untuk inflate clamp)
-  Future<List<FaceDetectionResult>> detectFromCameraImage(
+  ///
+  /// Returns (results, actualImageSize) — actualImageSize adalah dimensi
+  /// gambar yang diproses library (post-rotate, post-downscale via maxDim).
+  /// Gunakan ini untuk overlay, BUKAN CameraImage.width/height.
+  Future<(List<FaceDetectionResult>, Size)> detectFromCameraImage(
     CameraImage image, {
     CameraFrameRotation rotation = CameraFrameRotation.cw90,
-    Size imageSize = Size.zero,
   }) async {
-    if (!_isInitialized || _detector == null) return [];
+    if (!_isInitialized || _detector == null) return (<FaceDetectionResult>[], Size.zero);
 
     try {
       final faces = await _detector!.detectFacesFromCameraImage(
@@ -82,9 +84,16 @@ class FaceDetectorService {
         maxDim: 640,
       );
 
+      // Ambil dimensi gambar aktual dari library (post-rotate, post-downscale)
+      // Ini adalah coordinate space yang BENAR untuk bbox dan mesh.
+      Size actualImageSize = Size.zero;
+      if (faces.isNotEmpty) {
+        actualImageSize = faces.first.originalSize;
+      }
+
       final results = <FaceDetectionResult>[];
       for (int i = 0; i < faces.length; i++) {
-        final result = _convertFace(faces[i], faceIndex: i, imageSize: imageSize);
+        final result = _convertFace(faces[i], faceIndex: i, imageSize: actualImageSize);
         if (result != null) results.add(result);
       }
 
@@ -93,10 +102,10 @@ class FaceDetectorService {
         _ageHistory.removeRange(faces.length, _ageHistory.length);
       }
 
-      return results;
+      return (results, actualImageSize);
     } catch (e) {
       debugPrint('[FaceDetectorService] Detection error: $e');
-      return [];
+      return (<FaceDetectionResult>[], Size.zero);
     }
   }
 
@@ -150,18 +159,18 @@ class FaceDetectorService {
 
   // ── Bbox Inflate ──────────────────────────────────────────────────────────
 
-  /// Inflate bounding box agar seluruh wajah ter-cover.
-  /// • +10% lebar (kiri + kanan tiap 5%)
-  /// • +20% tinggi: +5% atas (dahi), +15% bawah (dagu & leher)
+  /// Inflate bounding box agar seluruh wajah ter-cover tanpa terlalu lebar.
+  /// • +5% lebar (kiri + kanan tiap 2.5%)
+  /// • +5% atas (dahi) +10% bawah (dagu)
   /// • Clamp dalam batas imageSize agar tidak negatif / out of frame
   Rect _inflateBbox(Rect rect, Size imageSize) {
     final w = rect.width;
     final h = rect.height;
 
-    final dxLeft  = w * 0.08;
-    final dxRight = w * 0.08;
-    final dyTop   = h * 0.08;   // sedikit lebih ke atas (dahi)
-    final dyBot   = h * 0.18;   // lebih besar ke bawah (dagu)
+    final dxLeft  = w * 0.05;
+    final dxRight = w * 0.05;
+    final dyTop   = h * 0.05;   // sedikit lebih ke atas (dahi)
+    final dyBot   = h * 0.10;   // cukup cover dagu
 
     final maxW = imageSize.width > 0 ? imageSize.width : double.infinity;
     final maxH = imageSize.height > 0 ? imageSize.height : double.infinity;
@@ -176,16 +185,16 @@ class FaceDetectorService {
 
   // ── Age Smoothing ─────────────────────────────────────────────────────────
 
-  /// Smoothing usia antar frame: rata-rata weighted (bobot baru 30%, lama 70%)
-  /// untuk mengurangi flickering usia yang berubah-ubah tiap frame.
+  /// Smoothing usia antar frame: rata-rata weighted (bobot baru 50%, lama 50%)
+  /// untuk mengurangi flickering tapi tetap responsif.
   int _smoothAge(int rawAge, int faceIndex) {
     if (_ageHistory.length <= faceIndex) {
       _ageHistory.add(rawAge);
       return rawAge;
     }
     final prev = _ageHistory[faceIndex];
-    // Weighted average — kurangi bobot frame baru agar lebih stabil
-    final smoothed = (prev * 0.7 + rawAge * 0.3).round();
+    // Balanced smoothing — cukup stabil tapi responsif terhadap perubahan
+    final smoothed = (prev * 0.5 + rawAge * 0.5).round();
     _ageHistory[faceIndex] = smoothed;
     return smoothed;
   }
@@ -251,90 +260,160 @@ class FaceDetectorService {
       final browRatio    = ((leftBrowGap + rightBrowGap) / 2) / mouthW;
 
       // ── Classifier ───────────────────────────────────────────────────────
+      // Urutan prioritas disesuaikan agar angry lebih mudah terdeteksi.
+      // Key insight: ekspresi marah dengan gigi terlihat (teeth-baring)
+      // punya smileRatio POSITIF karena sudut mulut tertarik ke belakang.
+      // Harus dibedakan dari senyum via browRatio (alis turun saat marah).
 
-      // Surprised: mulut terbuka (MAR > 0.25) DAN mata melebar (EAR > 0.20)
-      if (mar > 0.25 && avgEAR > 0.20) {
-        final conf = (math.min(mar / 0.38, 1.0) * 0.15 + 0.75).clamp(0.70, 0.96);
+      // 1. Surprised: fokus ke mata melotot (EAR tinggi) dan alis agak terangkat
+      //    Syarat mulut (MAR) dilepas/dikurangi drastis biar gampang kedeteksi
+      if (avgEAR > 0.24 && browRatio > 0.32) {
+        final conf = (math.min(avgEAR / 0.35, 1.0) * 0.15 + 0.75).clamp(0.70, 0.96);
         return (expression: FaceExpression.surprised, confidence: conf);
       }
 
-      // Happy: sudut mulut naik + mata sedikit menyipit (EAR < 0.18)
-      if (smileRatio > 0.04) {
+      // 2. Angry: TIGA jalur deteksi agar tidak mudah terlewat:
+      //    a) Alis turun kuat (browRatio < 0.30)
+      //    b) Teeth-baring: mulut terbuka (MAR > 0.15) + alis turun (browRatio < 0.35)
+      //       → ini menangkap ekspresi marah dengan gigi terlihat yang sering
+      //         terdeteksi sebagai "Senang" karena smileRatio positif
+      //    c) Kombinasi: alis agak turun + cemberut + mata menyipit
+      final isAngryBrow = browRatio < 0.30;
+      final isAngryTeethBare = mar > 0.15 && browRatio < 0.35 && avgEAR < 0.20;
+      final isAngryCombo = browRatio < 0.35 && smileRatio < -0.01 && avgEAR < 0.19;
+      if (isAngryBrow || isAngryTeethBare || isAngryCombo) {
+        double browScore;
+        if (isAngryBrow) {
+          browScore = math.min((0.30 - browRatio) / 0.15, 1.0);
+        } else if (isAngryTeethBare) {
+          browScore = math.min((0.35 - browRatio) / 0.15, 1.0) * 0.85;
+        } else {
+          browScore = math.min((0.35 - browRatio) / 0.15, 1.0) * 0.7;
+        }
+        final marBonus = mar > 0.15 ? 0.03 : 0.0;
+        final frownBonus = smileRatio < -0.01 ? 0.05 : 0.0;
+        final conf = (browScore * 0.20 + 0.70 + marBonus + frownBonus).clamp(0.68, 0.95);
+        return (expression: FaceExpression.angry, confidence: conf);
+      }
+
+      // 3. Happy: sudut mulut naik — HANYA jika alis TIDAK turun (browRatio >= 0.32)
+      //    Ini mencegah teeth-baring angry terdeteksi sebagai happy.
+      if (smileRatio > 0.06 && browRatio >= 0.32) {
         final smileConf = math.min(smileRatio / 0.12, 1.0);
         final eyeBonus  = avgEAR < 0.18 ? 0.05 : 0.0;
         final conf = (smileConf * 0.20 + 0.72 + eyeBonus).clamp(0.70, 0.97);
         return (expression: FaceExpression.happy, confidence: conf);
       }
 
-      // Fearful: mata melebar (EAR > 0.22) tanpa mulut terbuka besar
-      if (avgEAR > 0.22 && mar <= 0.25 && browRatio > 0.30) {
+
+      // 4. Fearful: mata melebar (EAR > 0.22) tanpa mulut terbuka besar
+      if (avgEAR > 0.22 && mar <= 0.28 && browRatio > 0.30) {
         final conf = (math.min(avgEAR / 0.35, 1.0) * 0.18 + 0.68).clamp(0.65, 0.90);
         return (expression: FaceExpression.fearful, confidence: conf);
       }
 
-      // Angry: alis ditekan ke bawah (browRatio kecil)
-      if (browRatio < 0.24) {
-        final conf = (math.min((0.24 - browRatio) / 0.12, 1.0) * 0.20 + 0.70).clamp(0.68, 0.93);
-        return (expression: FaceExpression.angry, confidence: conf);
-      }
-
-      // Disgusted: upper lip terangkat + alis menekan (brow rendah + mar kecil)
+      // 5. Disgusted: upper lip terangkat + alis menekan (brow rendah + mar kecil)
       final upperLipRaise = (upperLip.y - leftCorner.y).abs() / mouthW;
       if (upperLipRaise > 0.15 && browRatio < 0.30 && smileRatio < 0.0) {
         final conf = (math.min(upperLipRaise / 0.25, 1.0) * 0.15 + 0.66).clamp(0.65, 0.88);
         return (expression: FaceExpression.disgusted, confidence: conf);
       }
 
-      // Sad: sudut mulut turun + alis sedikit naik
-      if (smileRatio < -0.03 && browRatio >= 0.24) {
+      // 6. Sad: sudut mulut turun + alis sedikit naik
+      if (smileRatio < -0.03 && browRatio >= 0.28) {
         final conf = (math.min(smileRatio.abs() / 0.10, 1.0) * 0.18 + 0.68).clamp(0.65, 0.90);
         return (expression: FaceExpression.sad, confidence: conf);
       }
 
-      // Default: Neutral
+      // 7. Default: Neutral
       return (expression: FaceExpression.neutral, confidence: 0.72);
     } catch (_) {
       return (expression: FaceExpression.neutral, confidence: 0.65);
     }
   }
 
-  // ── Age Estimation (Heuristics v2) ───────────────────────────────────────
+  // ── Age Estimation (Heuristics v4 — Mesh-Based, Recalibrated) ──────────
   //
-  // PENTING: Ini HEURISTICS yang diperbaiki untuk keperluan demo PCD.
-  // Menggunakan kombinasi face-area-ratio + aspect ratio dengan baseline
-  // yang dikalibrasi ke distribusi usia realistis (kebanyakan 15–35 tahun).
+  // PENTING: Ini HEURISTICS berbasis mesh 468-point MediaPipe untuk demo PCD.
+  // Menggunakan proporsi wajah dari landmark untuk estimasi usia yang
+  // bervariasi. Dikalibrasi agar user mahasiswa (18-25) mendapat estimasi
+  // yang lebih realistis.
   //
-  // Range output: 8–65 — mencakup Pre-Teen hingga Senior.
+  // Range output: 5–65 — mencakup Toddler hingga Senior.
   int _estimateAge(Face face) {
     final bb = face.boundingBox;
     final faceW = bb.width.toDouble();
     final faceH = bb.height.toDouble();
-    if (faceW <= 0 || faceH <= 0) return 22;
+    if (faceW <= 0 || faceH <= 0) return 20;
 
-    // ── 1. Aspect Ratio Component ─────────────────────────────────────────
-    // Wajah anak (lebih bulat, ratio < 0.75) → usia lebih muda
-    // Wajah dewasa muda (ratio 0.75–0.88) → 18–30
-    // Wajah dewasa tua / lansia (ratio > 0.88) → 35+
-    final ar = (faceW / faceH).clamp(0.50, 1.10);
-    // Mapping linear: ar=0.60 → ageAR≈10, ar=0.80 → ageAR≈23, ar=1.0 → ageAR≈38
-    final ageFromAR = ((ar - 0.55) / (1.05 - 0.55)) * 35 + 8;
+    final mesh = face.mesh;
+    if (mesh == null) {
+      // Fallback tanpa mesh: default muda
+      return 20;
+    }
 
-    // ── 2. Bbox Area Component ────────────────────────────────────────────
-    // Luas bbox dalam piksel (sebelum inflate). Wajah yang lebih kecil
-    // cenderung dari kamera yang lebih jauh (pengguna sedang menjauh).
-    // Tidak ada korelasi kuat dengan usia, jadi bobotnya kecil.
-    // Digunakan HANYA sebagai stabilizer deterministik (tidak random).
-    final area = faceW * faceH;
-    // Normalisasi ke -2..+2 range
-    final areaOffset = ((area / 10000.0).clamp(0.5, 4.0) - 2.0).clamp(-2.0, 2.0);
+    try {
+      // ── MediaPipe Face Mesh Landmark Indices ──────────────────────────
+      final forehead    = mesh[10];   // forehead top center
+      final chin        = mesh[152];  // chin bottom center
+      final leftFace    = mesh[234];  // left face boundary
+      final rightFace   = mesh[454];  // right face boundary
+      final leftEyeIn   = mesh[33];   // left eye inner corner
+      final rightEyeIn  = mesh[263];  // right eye inner corner
+      final noseTip     = mesh[1];    // nose tip
+      final upperLip    = mesh[13];   // upper lip center
 
-    // ── 3. Combined Age ───────────────────────────────────────────────────
-    // Baseline: user PCD kebanyakan mahasiswa (18–25 tahun)
-    // Bobot AR sangat dominan (80%), area sebagai fine-tuner (20%)
-    final rawAge = (ageFromAR * 0.80 + (22 + areaOffset) * 0.20)
-        .clamp(8.0, 65.0)
-        .roundToDouble();
+      // Face height & width dari landmarks
+      final faceHeightLM = (chin.y - forehead.y).abs();
+      final faceWidthLM  = (rightFace.x - leftFace.x).abs();
 
-    return rawAge.toInt();
+      if (faceHeightLM < 1 || faceWidthLM < 1) return 20;
+
+      // ── 1. Nose-to-chin ratio ──────────────────────────────────────────
+      // Jarak hidung ke dagu vs total tinggi wajah.
+      // Anak-anak: wajah bagian bawah lebih pendek (~0.30)
+      // Dewasa: lebih panjang (~0.35-0.40)
+      // Ini lebih stabil dan diskriminatif dibanding forehead ratio.
+      final noseToChin = (chin.y - noseTip.y).abs();
+      final noseRatio = (noseToChin / faceHeightLM).clamp(0.15, 0.50);
+      // Mapping: 0.28→12, 0.35→22, 0.42→35
+      final ageFromNose = ((noseRatio - 0.25) / 0.20) * 25 + 10;
+
+      // ── 2. Mouth-to-chin ratio ─────────────────────────────────────────
+      // Jarak bibir atas ke dagu vs tinggi wajah.
+      // Indikator yang baik: anak punya chin lebih pendek relatif.
+      final mouthToChin = (chin.y - upperLip.y).abs();
+      final mouthChinRatio = (mouthToChin / faceHeightLM).clamp(0.10, 0.40);
+      // Mapping: 0.18→10, 0.25→22, 0.32→35
+      final ageFromMouthChin = ((mouthChinRatio - 0.15) / 0.20) * 28 + 8;
+
+      // ── 3. Face width-to-height ratio ──────────────────────────────────
+      // Anak-anak: wajah lebih bulat (ratio tinggi ~0.85+)
+      // Dewasa: wajah lebih lonjong (ratio ~0.70-0.80)
+      final faceRatioLM = (faceWidthLM / faceHeightLM).clamp(0.50, 1.10);
+      // Bulat → muda, lonjong → tua
+      // Mapping: 0.90→10, 0.78→22, 0.65→38
+      final ageFromShape = ((0.95 - faceRatioLM) / 0.30) * 30 + 8;
+
+      // ── 4. Eye spacing ratio ───────────────────────────────────────────
+      final eyeSpacing = (rightEyeIn.x - leftEyeIn.x).abs();
+      final eyeRatio = (eyeSpacing / faceWidthLM).clamp(0.15, 0.50);
+      // Mapping: 0.25→12, 0.32→22, 0.40→35
+      final ageFromEyes = ((eyeRatio - 0.20) / 0.22) * 25 + 10;
+
+      // ── 5. Combined Age ────────────────────────────────────────────────
+      // Bobot: noseRatio 30%, mouthChin 25%, shape 25%, eyes 20%
+      final rawAge = (
+        ageFromNose      * 0.30 +
+        ageFromMouthChin * 0.25 +
+        ageFromShape     * 0.25 +
+        ageFromEyes      * 0.20
+      ).clamp(5.0, 65.0).round();
+
+      return rawAge;
+    } catch (_) {
+      return 20;
+    }
   }
+
 }

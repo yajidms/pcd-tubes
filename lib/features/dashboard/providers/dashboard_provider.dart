@@ -61,6 +61,23 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     state = state.copyWith(isLoading: true, clearError: true);
 
     try {
+      // Tunggu sebentar agar _endSession() dari CameraPage sempat masuk ke DB
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Pastikan MongoDB terhubung sebelum query
+      if (!MongoDbService.isConnected) {
+        await MongoDbService.connect();
+      }
+
+      // Jika masih tidak terhubung setelah retry, set error
+      if (!MongoDbService.isConnected) {
+        state = state.copyWith(
+          isLoading: false,
+          error: 'MongoDB belum terhubung. Periksa koneksi internet.',
+        );
+        return;
+      }
+
       final results = await Future.wait([
         MongoDbService.getDetectionHistory(limit: 50),
         MongoDbService.getExpressionStats(),
