@@ -1,6 +1,6 @@
 // This is a generated file; do not edit or check into version control.
-FLUTTER_ROOT=C:\Tools\flutter
-FLUTTER_APPLICATION_PATH=C:\Users\lenovo\OneDrive - Politeknik Negeri Bandung\Documents\rizky satria\Kampus Polban\PCD\pcd-tubes
+FLUTTER_ROOT=C:\tools\flutter
+FLUTTER_APPLICATION_PATH=D:\Volume\github\pcd-tubes
 COCOAPODS_PARALLEL_CODE_SIGN=true
 FLUTTER_TARGET=lib\main.dart
 FLUTTER_BUILD_DIR=build

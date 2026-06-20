@@ -48,7 +48,9 @@ class FaceOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (faces.isEmpty || opacity <= 0 || imageSize == Size.zero) return;
+    if (faces.isEmpty || opacity <= 0) return;
+    if (imageSize == Size.zero || imageSize.width <= 0 || imageSize.height <= 0) return;
+    if (size.width <= 0 || size.height <= 0) return;
 
     // Hitung parameter BoxFit.cover sekali untuk semua wajah
     final coverParams = _computeCoverParams(size);

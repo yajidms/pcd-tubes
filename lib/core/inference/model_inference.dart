@@ -250,7 +250,16 @@ class FaceDetectorService {
       final rightBrowGap = (rightEyeInner.y - rightBrow.y).abs();
       final browRatio    = ((leftBrowGap + rightBrowGap) / 2) / mouthW;
 
-      // ── Classifier ───────────────────────────────────────────────────────
+      // ── Classifier ────────────────────────────────────────────────────────
+      //
+      // Urutan penting! Dari yang paling spesifik ke paling umum:
+      //   1. Surprised (MAR tinggi + EAR tinggi)
+      //   2. Happy (smile ratio tinggi)
+      //   3. Fearful (EAR menengah-tinggi + brow naik + mulut sedikit terbuka)
+      //   4. Disgusted (upper lip naik + brow rendah + frown)
+      //   5. Angry (brow rendah + frown)
+      //   6. Sad (frown + brow naik)
+      //   7. Neutral (default)
 
       // Surprised: mulut terbuka (MAR > 0.25) DAN mata melebar (EAR > 0.20)
       if (mar > 0.25 && avgEAR > 0.20) {
@@ -266,16 +275,13 @@ class FaceDetectorService {
         return (expression: FaceExpression.happy, confidence: conf);
       }
 
-      // Fearful: mata melebar (EAR > 0.22) tanpa mulut terbuka besar
-      if (avgEAR > 0.22 && mar <= 0.25 && browRatio > 0.30) {
-        final conf = (math.min(avgEAR / 0.35, 1.0) * 0.18 + 0.68).clamp(0.65, 0.90);
+      // Fearful: mata melebar (EAR > 0.18) + alis terangkat (browRatio > 0.26)
+      // Bisa disertai mulut sedikit terbuka (mar > 0.08)
+      if (avgEAR > 0.18 && browRatio > 0.26 && mar <= 0.25) {
+        // Bonus confidence jika mulut sedikit terbuka (tanda fear)
+        final mouthBonus = mar > 0.08 ? 0.05 : 0.0;
+        final conf = (math.min(avgEAR / 0.30, 1.0) * 0.18 + 0.66 + mouthBonus).clamp(0.65, 0.92);
         return (expression: FaceExpression.fearful, confidence: conf);
-      }
-
-      // Angry: alis ditekan ke bawah (browRatio kecil)
-      if (browRatio < 0.24) {
-        final conf = (math.min((0.24 - browRatio) / 0.12, 1.0) * 0.20 + 0.70).clamp(0.68, 0.93);
-        return (expression: FaceExpression.angry, confidence: conf);
       }
 
       // Disgusted: upper lip terangkat + alis menekan (brow rendah + mar kecil)
@@ -285,8 +291,18 @@ class FaceDetectorService {
         return (expression: FaceExpression.disgusted, confidence: conf);
       }
 
+      // Angry: alis ditekan ke bawah (browRatio rendah)
+      // Kondisi utama: browRatio < 0.28
+      // Kondisi alternatif: sedikit frown + brow menekan
+      if (browRatio < 0.28 && smileRatio <= 0.04) {
+        final browStrength = math.min((0.28 - browRatio) / 0.14, 1.0);
+        final frownBonus = smileRatio < -0.01 ? 0.05 : 0.0;
+        final conf = (browStrength * 0.20 + 0.68 + frownBonus).clamp(0.65, 0.93);
+        return (expression: FaceExpression.angry, confidence: conf);
+      }
+
       // Sad: sudut mulut turun + alis sedikit naik
-      if (smileRatio < -0.03 && browRatio >= 0.24) {
+      if (smileRatio < -0.03 && browRatio >= 0.26) {
         final conf = (math.min(smileRatio.abs() / 0.10, 1.0) * 0.18 + 0.68).clamp(0.65, 0.90);
         return (expression: FaceExpression.sad, confidence: conf);
       }
