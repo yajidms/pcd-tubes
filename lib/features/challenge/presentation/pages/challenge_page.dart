@@ -200,10 +200,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
         children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
-          ),
           const Expanded(
             child: Text(
               'Challenge Mode',
@@ -477,14 +473,6 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
                 ElevatedButton(
                   onPressed: _restartGame,
                   child: const Text('Main Lagi'),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Kembali',
-                    style: TextStyle(color: Colors.white38),
-                  ),
                 ),
               ],
             ),

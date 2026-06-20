@@ -79,8 +79,10 @@ class _ElegantNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
     return Container(
-      height: 72,
+      height: 72 + bottomPadding,
+      padding: EdgeInsets.only(bottom: bottomPadding),
       decoration: const BoxDecoration(
         color: AppTheme.surface,
         border: Border(top: BorderSide(color: Color(0xFF1E1E1E), width: 1)),

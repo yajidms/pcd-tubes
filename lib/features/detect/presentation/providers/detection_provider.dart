@@ -201,37 +201,35 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
   void _processFrame(CameraImage image, CameraFrameRotation rotation) async {
     _isProcessingFrame = true;
     try {
-      // ── Hitung imageSize post-rotation dengan benar ──────────────────────
-      // CameraImage.width/height = dimensi SENSOR (sebelum rotasi).
-      // Untuk rotasi 90° & 270°: lebar & tinggi dibalik → portrait.
-      // Untuk 0° / 180°: dimensi tetap, tapi kita tetap normalisasi ke portrait.
-      // PENTING: imgSize harus selalu portrait (height > width) agar sinkron
-      // dengan _buildCameraPreview yang selalu menghasilkan SizedBox portrait.
-      final double rawW = image.width.toDouble();
-      final double rawH = image.height.toDouble();
-      // Pastikan selalu portrait: width = sisi pendek, height = sisi panjang
-      final imgSize = Size(
-        rawW < rawH ? rawW : rawH,   // width = sisi pendek (portrait width)
-        rawW < rawH ? rawH : rawW,   // height = sisi panjang (portrait height)
-      );
+      // ── PENTING: imageSize untuk overlay diambil dari library ──────────
+      // Library face_detection_tflite melakukan downscale (maxDim=640) DAN
+      // rotasi secara internal. Koordinat bbox & mesh yang dikembalikan
+      // berada di ruang gambar post-downscale/post-rotate.
+      //
+      // Kita TIDAK boleh menggunakan CameraImage.width/height karena itu
+      // adalah dimensi sensor mentah (sebelum downscale & rotate).
+      // Contoh: CameraImage = 1280x720, setelah downscale+rotate = 360x640.
+      //
+      // face.originalSize (dari library) memberikan dimensi yang BENAR
+      // untuk mapping overlay → screen.
 
-      final results = await _detectorService.detectFromCameraImage(
+      final (results, actualImageSize) = await _detectorService.detectFromCameraImage(
         image,
-        rotation:  rotation,
-        imageSize: imgSize, // untuk clamp inflate bbox
+        rotation: rotation,
       );
 
       if (mounted) {
         state = state.copyWith(
           faces:      results,
           isDetecting: true,
-          imageSize:   imgSize,
+          imageSize:   actualImageSize,
         );
       }
     } finally {
       _isProcessingFrame = false;
     }
   }
+
 
   // ── Resume setelah app dari background ─────────────────────────────────────
 
