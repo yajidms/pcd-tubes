@@ -57,12 +57,12 @@ class CameraService with WidgetsBindingObserver {
   /// Hentikan streaming (tidak dispose controller).
   Future<void> stopStream() async {
     if (!_isStreaming || _controller == null) return;
+    _isStreaming = false; // Set to false immediately to prevent frame processing
     try {
       await _controller!.stopImageStream();
     } catch (e) {
       debugPrint('[CameraService] stopStream error: $e');
     }
-    _isStreaming = false;
     debugPrint('[CameraService] Stream stopped');
   }
 

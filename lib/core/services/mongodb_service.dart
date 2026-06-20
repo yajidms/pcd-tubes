@@ -19,17 +19,27 @@ import 'package:pcd_tubes/core/models/journal_entry.dart';
 //   Connection string via .env file
 class MongoDbService {
   static Db? _db;
-  static bool _isConnecting = false;
 
   /// Apakah sudah terhubung ke MongoDB
   static bool get isConnected => _db != null && _db!.isConnected;
 
 
+  static Future<void>? _connectionFuture;
+
   /// Koneksi ke MongoDB Atlas. Graceful fallback jika gagal.
   static Future<void> connect() async {
-    if (isConnected || _isConnecting) return;
-    _isConnecting = true;
+    if (isConnected) return;
+    if (_connectionFuture != null) {
+      await _connectionFuture;
+      return;
+    }
 
+    _connectionFuture = _connectInternal();
+    await _connectionFuture;
+    _connectionFuture = null;
+  }
+
+  static Future<void> _connectInternal() async {
     try {
       final uri = dotenv.env['MONGODB_URI'];
       if (uri == null || uri.isEmpty) {
@@ -43,8 +53,6 @@ class MongoDbService {
     } catch (e) {
       debugPrint('[MongoDbService] Connection error: $e');
       _db = null;
-    } finally {
-      _isConnecting = false;
     }
   }
 
@@ -58,7 +66,10 @@ class MongoDbService {
   }
 
 
-  static DbCollection? _collection(String name) {
+  static Future<DbCollection?> _collection(String name) async {
+    if (!isConnected) {
+      await connect();
+    }
     if (!isConnected) return null;
     return _db!.collection(name);
   }
@@ -73,7 +84,7 @@ class MongoDbService {
   /// Simpan ringkasan sesi deteksi ke collection detection_logs
   static Future<bool> logDetectionSession(DetectionSession session) async {
     try {
-      final col = _collection(_logsCollection);
+      final col = await _collection(_logsCollection);
       if (col == null) {
         debugPrint('[MongoDbService] DB not connected — skip log session');
         return false;
@@ -93,7 +104,7 @@ class MongoDbService {
     int limit = 50,
   }) async {
     try {
-      final col = _collection(_logsCollection);
+      final col = await _collection(_logsCollection);
       if (col == null) return [];
 
       final docs = await col
@@ -110,7 +121,7 @@ class MongoDbService {
   /// Ambil statistik distribusi ekspresi aggregated dari semua sesi
   static Future<Map<String, int>> getExpressionStats() async {
     try {
-      final col = _collection(_logsCollection);
+      final col = await _collection(_logsCollection);
       if (col == null) return {};
 
       final docs = await col.find().toList();
@@ -138,7 +149,7 @@ class MongoDbService {
   /// Simpan entri mood journal baru
   static Future<bool> saveJournalEntry(JournalEntry entry) async {
     try {
-      final col = _collection(_journalCollection);
+      final col = await _collection(_journalCollection);
       if (col == null) {
         debugPrint('[MongoDbService] DB not connected — skip save journal');
         return false;
@@ -158,7 +169,7 @@ class MongoDbService {
     int limit = 100,
   }) async {
     try {
-      final col = _collection(_journalCollection);
+      final col = await _collection(_journalCollection);
       if (col == null) return [];
 
       final docs = await col
@@ -175,7 +186,7 @@ class MongoDbService {
   /// Hapus entri journal berdasarkan ObjectId
   static Future<bool> deleteJournalEntry(String id) async {
     try {
-      final col = _collection(_journalCollection);
+      final col = await _collection(_journalCollection);
       if (col == null) return false;
 
       final objectId = ObjectId.fromHexString(id);

@@ -7,6 +7,8 @@ import 'package:pcd_tubes/features/challenge/challenge_screen.dart';
 import 'package:pcd_tubes/features/dashboard/dashboard_screen.dart';
 import 'package:pcd_tubes/features/detect/detect_screen.dart';
 import 'package:pcd_tubes/features/journal/journal_screen.dart';
+import 'package:pcd_tubes/features/journal/providers/journal_provider.dart';
+import 'package:pcd_tubes/features/dashboard/providers/dashboard_provider.dart';
 import 'package:pcd_tubes/shared/theme/app_theme.dart';
 
 void main() async {
@@ -37,13 +39,13 @@ class PcdTubesApp extends StatelessWidget {
   }
 }
 
-class MainShell extends StatefulWidget {
+class MainShell extends ConsumerStatefulWidget {
   const MainShell({super.key});
   @override
-  State<MainShell> createState() => _MainShellState();
+  ConsumerState<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends ConsumerState<MainShell> {
   int _current = 0;
 
   final _screens = const [
@@ -60,6 +62,11 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: _ElegantNavBar(
         current: _current,
         onTap: (i) {
+          if (i == 1) {
+            ref.read(dashboardProvider.notifier).loadData();
+          } else if (i == 2) {
+            ref.read(journalProvider.notifier).loadEntries();
+          }
           setState(() => _current = i);
         },
       ),

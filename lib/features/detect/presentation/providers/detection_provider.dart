@@ -112,8 +112,8 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
     final endTime = DateTime.now();
     final duration = endTime.difference(_sessionStartTime!).inSeconds;
     
-    // Simpan ke DB hanya jika durasi > 2 detik dan ada wajah terdeteksi
-    if (duration > 2 && _sessionTotalFaces > 0) {
+    // Coba log SEMUA sesi untuk debug (tanpa syarat durasi/wajah)
+    if (true) {
       String dominant = 'neutral';
       int maxCount = 0;
       for (final entry in _sessionExpressionCounts.entries) {
@@ -303,7 +303,8 @@ class DetectionNotifier extends StateNotifier<DetectionState> {
         rotation: rotation,
       );
 
-      if (mounted) {
+      // Hanya update state jika notifier belum didispose DAN stream masih berjalan
+      if (mounted && _cameraService.isStreaming) {
         // Track session stats
         for (final face in results) {
           final exprName = face.expression.name;

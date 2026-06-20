@@ -76,6 +76,7 @@ class _ChallengePageState extends ConsumerState<ChallengePage>
     _holdTimer?.cancel();
     _successAnim.dispose();
     _pulseAnim.dispose();
+    ref.read(detectionProvider.notifier).stopDetection();
     super.dispose();
   }
 
